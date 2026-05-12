@@ -37,11 +37,14 @@ interface BillingProvider {
 
     /**
      * Re-sync the user's purchase history with the Play Store. Useful for the
-     * App Store / Play Store "Restore Purchases" button. Returns every recovered
-     * receipt; the user's [CustomerInfo] is updated as a side effect, so
-     * subscribers to [observeCustomerInfo] will see the change too.
+     * App Store / Play Store "Restore Purchases" button.
+     *
+     * Returns the freshly-synced [CustomerInfo] — that's what providers
+     * actually compute. Active entitlements and owned non-consumables are
+     * available on the returned snapshot, and any subscribers to
+     * [observeCustomerInfo] will see the same update.
      */
-    suspend fun restore(): Result<List<Receipt>>
+    suspend fun restore(): Result<CustomerInfo>
 
     /** Fetch the current [CustomerInfo] snapshot. */
     suspend fun customerInfo(): Result<CustomerInfo>

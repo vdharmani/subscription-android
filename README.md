@@ -45,9 +45,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.0.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.0.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.0")
 }
 ```
 
@@ -65,8 +65,7 @@ class MyApp : Application() {
     override fun onCreate() {
         super.onCreate()
         SubscriptionManager.initialize(
-            context = this,
-            provider = RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
+            RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
         )
     }
 }
@@ -144,7 +143,7 @@ class SubscribeActivity : AppCompatActivity() {
 
         binding.restoreBtn.setOnClickListener {
             sub.restore { result ->
-                result.onSuccess { receipts -> viewModel.notifyServerRestore(receipts) }
+                result.onSuccess { info -> viewModel.notifyServerRestore(info) }
             }
         }
     }
@@ -214,7 +213,7 @@ If you want native Play Billing or a different SDK, implement the SPI:
 ```kotlin
 class MyPlayBillingProvider(context: Context) : BillingProvider {
     override suspend fun purchase(activity: Activity, productId: String, productType: ProductType): Result<Receipt> { /* ... */ }
-    override suspend fun restore(): Result<List<Receipt>> { /* ... */ }
+    override suspend fun restore(): Result<CustomerInfo> { /* ... */ }
     override suspend fun customerInfo(): Result<CustomerInfo> { /* ... */ }
     override suspend fun identify(appUserId: String): Result<CustomerInfo> { /* ... */ }
     override suspend fun logout(): Result<CustomerInfo> { /* ... */ }

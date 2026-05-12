@@ -14,7 +14,7 @@ import com.vdharmani.subscription.model.Receipt
  */
 class SubscriptionComposeManager internal constructor(
     private val onPurchase: suspend (productId: String, productType: ProductType) -> Result<Receipt>,
-    private val onRestore: suspend () -> Result<List<Receipt>>,
+    private val onRestore: suspend () -> Result<CustomerInfo>,
     private val onCustomerInfo: suspend () -> Result<CustomerInfo>,
     private val onIdentify: suspend (appUserId: String) -> Result<CustomerInfo>,
     private val onLogout: suspend () -> Result<CustomerInfo>,
@@ -27,7 +27,7 @@ class SubscriptionComposeManager internal constructor(
     suspend fun purchase(productId: String, productType: ProductType): Result<Receipt> =
         onPurchase(productId, productType)
 
-    suspend fun restore(): Result<List<Receipt>> = onRestore()
+    suspend fun restore(): Result<CustomerInfo> = onRestore()
     suspend fun customerInfo(): Result<CustomerInfo> = onCustomerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = onIdentify(appUserId)
     suspend fun logout(): Result<CustomerInfo> = onLogout()

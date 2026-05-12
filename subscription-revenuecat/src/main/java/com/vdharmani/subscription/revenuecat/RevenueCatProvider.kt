@@ -12,12 +12,12 @@ import com.revenuecat.purchases.PurchasesConfiguration
 import com.revenuecat.purchases.PurchasesErrorCode
 import com.revenuecat.purchases.PurchasesException
 import com.revenuecat.purchases.awaitCustomerInfo
-import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
 import com.revenuecat.purchases.awaitGetProducts
 import com.revenuecat.purchases.awaitLogIn
 import com.revenuecat.purchases.awaitLogOut
 import com.revenuecat.purchases.awaitPurchase
 import com.revenuecat.purchases.awaitRestore
+import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
 import com.revenuecat.purchases.models.StoreProduct
 import com.revenuecat.purchases.models.StoreTransaction
 import com.vdharmani.subscription.BillingProvider
@@ -26,10 +26,14 @@ import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /**
  * [BillingProvider] implementation backed by [RevenueCat](https://www.revenuecat.com/).
@@ -38,8 +42,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  *
  * ```kotlin
  * SubscriptionManager.initialize(
- *     context = this,
- *     provider = RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
+ *     RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
  * )
  * ```
  *
@@ -56,6 +59,17 @@ class RevenueCatProvider(
     debugLogs: Boolean = false,
 ) : BillingProvider {
 
+    /**
+     * Scope used for the one-time customer-info snapshot fetch. The provider
+     * is a process-lifetime singleton (created in Application.onCreate), so
+     * the scope's lifetime is the app's. A `SupervisorJob` prevents an early
+     * fetch failure from cancelling future work.
+     */
+    private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val customerInfoSink = MutableSharedFlow<CustomerInfo>(replay = 1)
+    private val customerInfoFlow: Flow<CustomerInfo> = customerInfoSink.asSharedFlow().distinctUntilChanged()
+
     init {
         synchronized(Purchases::class.java) {
             if (!Purchases.isConfigured) {
@@ -63,6 +77,24 @@ class RevenueCatProvider(
                 Purchases.configure(
                     PurchasesConfiguration.Builder(context.applicationContext, apiKey).build(),
                 )
+            }
+        }
+
+        // Register the global listener once. RevenueCat exposes a single
+        // listener slot; any subsequent `Purchases.sharedInstance.updatedCustomerInfoListener =`
+        // call would replace ours, so collectors fan out through our SharedFlow
+        // instead of subscribing to RevenueCat directly.
+        Purchases.sharedInstance.updatedCustomerInfoListener =
+            UpdatedCustomerInfoListener { rcInfo ->
+                customerInfoSink.tryEmit(rcInfo.toCustomerInfo())
+            }
+
+        // Push an initial snapshot so late subscribers see something
+        // immediately (the SharedFlow's replay=1 cache holds it).
+        providerScope.launch {
+            runCatching {
+                val snapshot = Purchases.sharedInstance.awaitCustomerInfo()
+                customerInfoSink.tryEmit(snapshot.toCustomerInfo())
             }
         }
     }
@@ -101,9 +133,8 @@ class RevenueCatProvider(
 
     // -- restore / customer info -----------------------------------------
 
-    override suspend fun restore(): Result<List<Receipt>> = runCatching {
-        val info = Purchases.sharedInstance.awaitRestore()
-        info.toAllReceipts()
+    override suspend fun restore(): Result<CustomerInfo> = runCatching {
+        Purchases.sharedInstance.awaitRestore().toCustomerInfo()
     }
 
     override suspend fun customerInfo(): Result<CustomerInfo> = runCatching {
@@ -122,25 +153,7 @@ class RevenueCatProvider(
 
     // -- live updates -----------------------------------------------------
 
-    override fun observeCustomerInfo(): Flow<CustomerInfo> = callbackFlow {
-        val listener = UpdatedCustomerInfoListener { info ->
-            trySend(info.toCustomerInfo())
-        }
-        Purchases.sharedInstance.updatedCustomerInfoListener = listener
-
-        // Emit the current cached snapshot so collectors see something
-        // immediately even before the next update fires.
-        runCatching {
-            val snapshot = Purchases.sharedInstance.awaitCustomerInfo()
-            trySend(snapshot.toCustomerInfo())
-        }
-
-        awaitClose {
-            if (Purchases.sharedInstance.updatedCustomerInfoListener === listener) {
-                Purchases.sharedInstance.updatedCustomerInfoListener = null
-            }
-        }
-    }.distinctUntilChanged()
+    override fun observeCustomerInfo(): Flow<CustomerInfo> = customerInfoFlow
 
     // -- mapping ----------------------------------------------------------
 
@@ -179,40 +192,4 @@ class RevenueCatProvider(
         willRenew = willRenew,
         isInGracePeriod = billingIssueDetectedAt != null,
     )
-
-    /**
-     * `restorePurchases` returns a [RcCustomerInfo] — we don't get an itemised
-     * receipt list back from RevenueCat. To keep the API honest, we surface
-     * one [Receipt] per active entitlement and per non-consumable purchase,
-     * filled in with what RevenueCat actually knows. Server-side, you should
-     * match by `productId` + `transactionId`.
-     */
-    private fun RcCustomerInfo.toAllReceipts(): List<Receipt> {
-        val appUserId = originalAppUserId
-        // Active entitlements always come from a subscription product.
-        val fromEntitlements = entitlements.active.values.map { e ->
-            Receipt(
-                appUserId = appUserId,
-                productId = e.productIdentifier,
-                productType = ProductType.SUBS,
-                transactionId = e.store.name,                        // RC doesn't expose the order id here
-                purchasedAtSeconds = (e.latestPurchaseDate?.time ?: 0L) / 1000L,
-                price = 0.0,                                          // not available from EntitlementInfo
-                currency = "",
-            )
-        }
-        val fromInapp = nonSubscriptionTransactions.map { tx ->
-            Receipt(
-                appUserId = appUserId,
-                productId = tx.productIdentifier,
-                productType = ProductType.INAPP,
-                transactionId = tx.transactionIdentifier,
-                purchasedAtSeconds = tx.purchaseDate.time / 1000L,
-                price = 0.0,
-                currency = "",
-            )
-        }
-        return (fromEntitlements + fromInapp).distinctBy { it.transactionId + it.productId }
-    }
 }
-

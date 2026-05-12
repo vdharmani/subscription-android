@@ -2,7 +2,6 @@ package com.vdharmani.subscription.compose
 
 import android.app.Activity
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -10,6 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vdharmani.subscription.BillingProvider
 import com.vdharmani.subscription.SubscriptionClient
 import com.vdharmani.subscription.SubscriptionManager
+import com.vdharmani.subscription.internal.playStoreInstallerCheck
 import com.vdharmani.subscription.model.ProductType
 
 /**
@@ -41,7 +41,11 @@ fun ComposeSubscription(
     config: SubscriptionClient.Config = SubscriptionClient.Config(),
 ): SubscriptionComposeManager {
     val context = LocalContext.current
-    val customerInfoState = provider.observeCustomerInfo().collectAsStateWithLifecycle(initialValue = null)
+
+    // Remember the flow so recompositions don't tear down and re-subscribe to
+    // the provider's customer-info stream on every frame.
+    val customerInfoFlow = remember(provider) { provider.observeCustomerInfo() }
+    val customerInfoState = customerInfoFlow.collectAsStateWithLifecycle(initialValue = null)
 
     return remember(provider, config) {
         SubscriptionComposeManager(
@@ -50,7 +54,11 @@ fun ComposeSubscription(
                     ?: return@SubscriptionComposeManager Result.failure(
                         IllegalStateException("ComposeSubscription must be hosted in an Activity to launch purchases."),
                     )
-                installerCheckFailure(context, config)?.let { return@SubscriptionComposeManager Result.failure(it) }
+                if (config.requirePlayStoreInstaller) {
+                    playStoreInstallerCheck(context)?.let {
+                        return@SubscriptionComposeManager Result.failure(it)
+                    }
+                }
                 provider.purchase(activity, productId, productType)
             },
             onRestore = { provider.restore() },
@@ -69,29 +77,4 @@ private fun Context.findActivity(): Activity? {
         ctx = ctx.baseContext
     }
     return null
-}
-
-private fun installerCheckFailure(
-    context: Context,
-    config: SubscriptionClient.Config,
-): IllegalStateException? {
-    if (!config.requirePlayStoreInstaller) return null
-    val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    val installer = try {
-        val pm = context.packageManager
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            pm.getInstallSourceInfo(context.packageName).installingPackageName
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getInstallerPackageName(context.packageName)
-        }
-    } catch (_: Exception) {
-        null
-    }
-    return if (debuggable || installer == null) {
-        IllegalStateException(
-            "Purchases are blocked: app must be installed from the Play Store " +
-                "(debuggable=$debuggable, installer=$installer).",
-        )
-    } else null
 }

@@ -1,7 +1,5 @@
 package com.vdharmani.subscription
 
-import android.content.Context
-
 /**
  * Static facade for one-time [BillingProvider] registration.
  *
@@ -15,8 +13,7 @@ import android.content.Context
  *     override fun onCreate() {
  *         super.onCreate()
  *         SubscriptionManager.initialize(
- *             context = this,
- *             provider = RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
+ *             RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY),
  *         )
  *     }
  * }
@@ -30,13 +27,8 @@ object SubscriptionManager {
     /**
      * Register [provider] as the single [BillingProvider] for the app.
      * Subsequent calls overwrite the previous registration (useful in tests).
-     *
-     * [context] is accepted for symmetry with similar facades and to keep
-     * the door open for future configuration; the current implementation
-     * does not retain it.
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun initialize(context: Context, provider: BillingProvider) {
+    fun initialize(provider: BillingProvider) {
         registered = provider
     }
 
