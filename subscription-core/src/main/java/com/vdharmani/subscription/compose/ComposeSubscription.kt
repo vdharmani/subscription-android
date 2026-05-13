@@ -47,7 +47,12 @@ fun ComposeSubscription(
     val customerInfoFlow = remember(provider) { provider.observeCustomerInfo() }
     val customerInfoState = customerInfoFlow.collectAsStateWithLifecycle(initialValue = null)
 
-    return remember(provider, config) {
+    // Re-key on `context` so the captured Context inside the lambdas below is
+    // refreshed after a configuration change. Without this, after a rotation
+    // we'd keep walking the wrapper chain of the *destroyed* Activity and
+    // either crash inside RevenueCat.awaitPurchase() or fall back to the
+    // "must be hosted in an Activity" error path.
+    return remember(provider, config, context) {
         SubscriptionComposeManager(
             onPurchase = { productId, productType ->
                 val activity = context.findActivity()

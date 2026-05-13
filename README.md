@@ -45,9 +45,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.2")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.2")
 }
 ```
 
@@ -74,6 +74,13 @@ class MyApp : Application() {
 After this line, every screen just constructs `SubscriptionClient(this)` or
 calls `ComposeSubscription()` — no other code mentions the provider class.
 Swapping to a different provider later is a single-line change here.
+
+If the user is already signed in when the app starts, pass their id straight
+to the provider to skip the anonymous-then-identify hop:
+
+```kotlin
+RevenueCatProvider(this, BuildConfig.REVENUECAT_KEY, appUserId = userId)
+```
 
 ---
 

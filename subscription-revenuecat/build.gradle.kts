@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -6,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.vdharmani.subscription.revenuecat"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 21
@@ -18,10 +20,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     publishing {
         singleVariant("release") {
             withSourcesJar()
@@ -29,10 +27,16 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
+    }
+}
+
 dependencies {
     api(project(":subscription-core"))
-    api("com.revenuecat.purchases:purchases:8.10.5")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    api("com.revenuecat.purchases:purchases:10.5.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 }
 
 afterEvaluate {
@@ -42,7 +46,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.vdharmani.subscription-android"
                 artifactId = "subscription-revenuecat"
-                version = "1.1.1"
+                version = "1.1.2"
             }
         }
     }

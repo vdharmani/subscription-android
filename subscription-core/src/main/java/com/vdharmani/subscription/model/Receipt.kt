@@ -19,8 +19,13 @@ data class Receipt(
     /** Which kind of product this was. */
     val productType: ProductType,
 
-    /** Play order id (used for receipt validation). May be empty if the SDK didn't supply one. */
-    val transactionId: String,
+    /**
+     * Play order id (used for receipt validation). `null` when the underlying
+     * SDK didn't supply one — distinct from an empty string, which used to be
+     * the silent fallback and could cause server-side verify endpoints to
+     * accept bogus receipts.
+     */
+    val transactionId: String?,
 
     /** When the purchase completed, in unix seconds. */
     val purchasedAtSeconds: Long,

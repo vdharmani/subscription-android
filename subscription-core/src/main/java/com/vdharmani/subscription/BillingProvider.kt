@@ -17,6 +17,14 @@ import kotlinx.coroutines.flow.Flow
  *
  * All methods are `suspend` and return [Result]; failures land in
  * `Result.failure` with a typed exception, never thrown across the API boundary.
+ *
+ * **Custom implementations:** map your SDK's error codes onto the
+ * [BillingException] subclasses (`BillingNetworkException`,
+ * `PaymentDeclinedException`, etc.) so consumers can dispatch on type.
+ * Use [UnknownBillingException] as a fallback. Wrapping in plain
+ * `Exception`/`IllegalStateException` works but defeats the whole point of
+ * the typed hierarchy — callers can't tell "network down" from "payment
+ * declined" and end up with one generic error UI.
  */
 interface BillingProvider {
 
@@ -81,6 +89,21 @@ interface BillingProvider {
  * types. Custom [BillingProvider] implementations should map their SDK's
  * errors onto the subclasses below; [UnknownBillingException] is the
  * fallback when no more-specific mapping is appropriate.
+ *
+ * **Heads up:** [PurchaseCancelledException] is a [BillingException]. A naive
+ * `if (e is BillingException) showError(e)` will mistakenly show an error
+ * dialog when the user simply dismissed the purchase sheet. Always check
+ * cancellation first:
+ *
+ * ```kotlin
+ * result.onFailure { e ->
+ *     when (e) {
+ *         is PurchaseCancelledException -> {}            // normal action
+ *         is BillingException -> showError(e)             // real failure
+ *         else -> showError(e)                            // unexpected
+ *     }
+ * }
+ * ```
  */
 sealed class BillingException(message: String?, cause: Throwable? = null) :
     Exception(message, cause)

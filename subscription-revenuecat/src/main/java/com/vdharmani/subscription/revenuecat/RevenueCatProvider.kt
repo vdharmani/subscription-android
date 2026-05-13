@@ -59,11 +59,16 @@ import kotlinx.coroutines.launch
  * @param context Any Context; only used to call `Purchases.configure`.
  * @param apiKey Your RevenueCat **Android** public API key.
  * @param debugLogs Enable RevenueCat's verbose logging. Defaults to `false`.
+ * @param appUserId If your user is already authenticated when this provider
+ *   is constructed, pass their stable app user id here to skip the
+ *   anonymous-then-identify round-trip on startup. `null` (default) leaves
+ *   RC anonymous; call [identify] later once you know the user id.
  */
 class RevenueCatProvider(
     context: Context,
     apiKey: String,
     debugLogs: Boolean = false,
+    appUserId: String? = null,
 ) : BillingProvider {
 
     /**
@@ -89,7 +94,9 @@ class RevenueCatProvider(
             if (!Purchases.isConfigured) {
                 if (debugLogs) Purchases.logLevel = LogLevel.DEBUG
                 Purchases.configure(
-                    PurchasesConfiguration.Builder(context.applicationContext, apiKey).build(),
+                    PurchasesConfiguration.Builder(context.applicationContext, apiKey)
+                        .apply { if (appUserId != null) appUserID(appUserId) }
+                        .build(),
                 )
             }
         }
@@ -181,7 +188,7 @@ class RevenueCatProvider(
         appUserId = appUserId,
         productId = id,
         productType = productType,
-        transactionId = transaction.orderId.orEmpty(),
+        transactionId = transaction.orderId,
         purchasedAtSeconds = transaction.purchaseTime / 1000L,
         price = price.amountMicros / 1_000_000.0,
         priceAmountMicros = price.amountMicros,
@@ -199,7 +206,10 @@ class RevenueCatProvider(
     private fun EntitlementInfo.toEntitlement(): Entitlement = Entitlement(
         identifier = identifier,
         productId = productIdentifier,
-        purchasedAtSeconds = latestPurchaseDate?.let { it.time / 1000L },
+        // RC 10+ guarantees latestPurchaseDate is non-null; the Entitlement
+        // field stays nullable so custom providers without this guarantee can
+        // still surface "unknown".
+        purchasedAtSeconds = latestPurchaseDate.time / 1000L,
         expiresAtSeconds = expirationDate?.let { it.time / 1000L },
         willRenew = willRenew,
         isInGracePeriod = billingIssueDetectedAt != null,
