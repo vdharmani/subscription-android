@@ -73,8 +73,45 @@ interface BillingProvider {
     fun observeCustomerInfo(): Flow<CustomerInfo>
 }
 
-/** Thrown via `Result.failure` when the user cancels the purchase sheet. */
-class PurchaseCancelledException : Exception("User cancelled the purchase flow")
+/**
+ * Base type for billing failures surfaced via `Result.failure`.
+ *
+ * Lets callers dispatch on a specific reason (network, payment declined,
+ * product not available, …) without unwrapping provider-specific exception
+ * types. Custom [BillingProvider] implementations should map their SDK's
+ * errors onto the subclasses below; [UnknownBillingException] is the
+ * fallback when no more-specific mapping is appropriate.
+ */
+sealed class BillingException(message: String?, cause: Throwable? = null) :
+    Exception(message, cause)
+
+/** The user dismissed the purchase sheet. Treat as a normal action, not an error. */
+class PurchaseCancelledException :
+    BillingException("User cancelled the purchase flow")
+
+/** No connectivity, request timed out, or the store endpoint was unreachable. */
+class BillingNetworkException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Network error talking to the store", cause)
+
+/** The store rejected payment (user/family/device payment method declined). */
+class PaymentDeclinedException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Payment was not accepted by the store", cause)
+
+/** The requested product id is not configured / not available in the store. */
+class ProductUnavailableException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Product is not available for purchase", cause)
+
+/** The user already owns this product / has an active receipt for it. */
+class AlreadyOwnedException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Product is already owned", cause)
+
+/** Store-side problem (backend down, unexpected response). Retrying may help. */
+class StoreProblemException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Store reported a problem", cause)
+
+/** Catch-all for failures that don't map to a more specific subclass. */
+class UnknownBillingException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Unknown billing failure", cause)
 
 /** Thrown via `Result.failure` when no [BillingProvider] is registered. */
 class ProviderNotInitializedException :

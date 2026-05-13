@@ -45,9 +45,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.1")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.1")
 }
 ```
 
@@ -202,7 +202,7 @@ see the change automatically.
 
 | Field | Default | Purpose |
 |---|---|---|
-| `requirePlayStoreInstaller` | `false` | When `true`, [purchase] is blocked on debuggable builds and on builds without a Play Store installer source. Match the safety check from the reference impl. Opt-in. |
+| `requirePlayStoreInstaller` | `false` | When `true`, [purchase] is blocked on debuggable builds and on builds whose installer is anything other than the Play Store (`com.android.vending`). Match the safety check from the reference impl. Opt-in. |
 
 ---
 

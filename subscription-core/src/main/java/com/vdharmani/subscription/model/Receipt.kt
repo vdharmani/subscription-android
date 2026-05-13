@@ -28,6 +28,14 @@ data class Receipt(
     /** Price paid by the user, in major currency units (e.g. 9.99, not 9990000 micros). */
     val price: Double,
 
+    /**
+     * Price paid in micros (1 unit = 1,000,000). Prefer this for server-side
+     * verification and any accounting — it preserves exact precision across
+     * all currencies, including zero-decimal ones like JPY. [price] is a
+     * `Double` rounded down for display convenience.
+     */
+    val priceAmountMicros: Long,
+
     /** ISO-4217 currency code (e.g. "USD", "INR"). */
     val currency: String,
 )

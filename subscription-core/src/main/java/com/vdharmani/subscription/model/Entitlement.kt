@@ -15,8 +15,12 @@ data class Entitlement(
     /** The product id that granted this entitlement most recently. */
     val productId: String,
 
-    /** When the granting purchase was made. */
-    val purchasedAtSeconds: Long,
+    /**
+     * When the granting purchase was made (unix seconds). `null` if the
+     * provider didn't report a date — distinct from epoch 0, which used to be
+     * the fallback and led to confusing "1970-01-01" purchase dates.
+     */
+    val purchasedAtSeconds: Long?,
 
     /** Unix-seconds expiry. `null` for non-expiring (lifetime / non-consumable) entitlements. */
     val expiresAtSeconds: Long?,

@@ -56,9 +56,11 @@ class SubscriptionClient private constructor(
     data class Config(
         /**
          * When `true`, [purchase] is blocked on debuggable builds and on
-         * builds whose installer-package-name cannot be read (typically
-         * sideloaded APKs). Matches the safety check from the reference
-         * implementation. Default: `false` — opt-in.
+         * builds whose installer is anything other than the Play Store
+         * (`com.android.vending`) — so sideloads, F-Droid installs, OEM
+         * preloads, and instrumentation tests are all rejected. Matches the
+         * safety check from the reference implementation. Default: `false` —
+         * opt-in.
          */
         val requirePlayStoreInstaller: Boolean = false,
     )

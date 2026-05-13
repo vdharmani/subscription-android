@@ -20,8 +20,14 @@ import com.revenuecat.purchases.awaitRestore
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
 import com.revenuecat.purchases.models.StoreProduct
 import com.revenuecat.purchases.models.StoreTransaction
+import com.vdharmani.subscription.AlreadyOwnedException
+import com.vdharmani.subscription.BillingNetworkException
 import com.vdharmani.subscription.BillingProvider
+import com.vdharmani.subscription.PaymentDeclinedException
+import com.vdharmani.subscription.ProductUnavailableException
 import com.vdharmani.subscription.PurchaseCancelledException
+import com.vdharmani.subscription.StoreProblemException
+import com.vdharmani.subscription.UnknownBillingException
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
 import com.vdharmani.subscription.model.ProductType
@@ -29,6 +35,7 @@ import com.vdharmani.subscription.model.Receipt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -67,7 +74,14 @@ class RevenueCatProvider(
      */
     private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val customerInfoSink = MutableSharedFlow<CustomerInfo>(replay = 1)
+    // replay=1 so late subscribers get the most-recent snapshot immediately.
+    // extraBufferCapacity=1 + DROP_OLDEST so a slow collector can't cause
+    // tryEmit() to return false and silently swallow a customer-info update.
+    private val customerInfoSink = MutableSharedFlow<CustomerInfo>(
+        replay = 1,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     private val customerInfoFlow: Flow<CustomerInfo> = customerInfoSink.asSharedFlow().distinctUntilChanged()
 
     init {
@@ -118,10 +132,7 @@ class RevenueCatProvider(
         val outcome = try {
             Purchases.sharedInstance.awaitPurchase(params)
         } catch (e: PurchasesException) {
-            if (e.code == PurchasesErrorCode.PurchaseCancelledError) {
-                throw PurchaseCancelledException()
-            }
-            throw IllegalStateException(e.error.message, e)
+            throw e.toBillingException()
         }
 
         product.toReceipt(
@@ -173,6 +184,7 @@ class RevenueCatProvider(
         transactionId = transaction.orderId.orEmpty(),
         purchasedAtSeconds = transaction.purchaseTime / 1000L,
         price = price.amountMicros / 1_000_000.0,
+        priceAmountMicros = price.amountMicros,
         currency = price.currencyCode,
     )
 
@@ -187,9 +199,37 @@ class RevenueCatProvider(
     private fun EntitlementInfo.toEntitlement(): Entitlement = Entitlement(
         identifier = identifier,
         productId = productIdentifier,
-        purchasedAtSeconds = (latestPurchaseDate?.time ?: 0L) / 1000L,
+        purchasedAtSeconds = latestPurchaseDate?.let { it.time / 1000L },
         expiresAtSeconds = expirationDate?.let { it.time / 1000L },
         willRenew = willRenew,
         isInGracePeriod = billingIssueDetectedAt != null,
     )
+
+    private fun PurchasesException.toBillingException(): Throwable = when (code) {
+        PurchasesErrorCode.PurchaseCancelledError ->
+            PurchaseCancelledException()
+
+        PurchasesErrorCode.NetworkError ->
+            BillingNetworkException(error.message, this)
+
+        PurchasesErrorCode.PurchaseNotAllowedError,
+        PurchasesErrorCode.PurchaseInvalidError,
+        PurchasesErrorCode.PaymentPendingError ->
+            PaymentDeclinedException(error.message, this)
+
+        PurchasesErrorCode.ProductNotAvailableForPurchaseError ->
+            ProductUnavailableException(error.message, this)
+
+        PurchasesErrorCode.ProductAlreadyPurchasedError,
+        PurchasesErrorCode.ReceiptAlreadyInUseError ->
+            AlreadyOwnedException(error.message, this)
+
+        PurchasesErrorCode.StoreProblemError,
+        PurchasesErrorCode.UnexpectedBackendResponseError,
+        PurchasesErrorCode.UnknownBackendError ->
+            StoreProblemException(error.message, this)
+
+        else ->
+            UnknownBillingException(error.message, this)
+    }
 }
