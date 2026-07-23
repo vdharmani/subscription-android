@@ -14,7 +14,8 @@ touching call sites.
 ## Highlights
 
 - 🛒 **One API for INAPP + SUBS.** `purchase(productId, productType)` covers
-  both one-shot purchases and auto-renewing subscriptions.
+  both one-shot purchases and auto-renewing subscriptions — pass
+  `"productId:basePlanId"` to target one base plan of a multi-plan subscription.
 - 🔄 **Restore + identify + logout** are first-class — no need to drop down
   to the SDK for the App Store / Play Store basics.
 - ⬆️ **Plan switching.** `changeSubscription(new, old, mode)` does a real Play
@@ -50,9 +51,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.3.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.3.1")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.3.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.3.1")
 }
 ```
 
@@ -242,20 +243,23 @@ for both. Play needs the product being replaced plus a replacement mode, which
 is what `changeSubscription` sends:
 
 ```kotlin
-// Monthly → Annual: charge the prorated difference now, keep the billing date
+// Monthly → Yearly: charge the prorated difference now, keep the billing date
 sub.changeSubscription(
-    productId = "premium_annual",
-    oldProductId = "premium_monthly",
+    productId = "premium:yearly",
+    oldProductId = "premium:monthly",
     replacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
 )
 
-// Annual → Monthly: let the paid-for year run out first
+// Yearly → Monthly: let the paid-for year run out first
 sub.changeSubscription(
-    productId = "premium_monthly",
-    oldProductId = "premium_annual",
+    productId = "premium:monthly",
+    oldProductId = "premium:yearly",
     replacementMode = ReplacementMode.DEFERRED,
 )
 ```
+
+The example above is the common Play setup: **one** subscription product with
+two base plans. Separate products work the same way — pass their ids instead.
 
 | Mode | Charged today | Switch takes effect |
 |---|---|---|

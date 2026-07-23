@@ -18,8 +18,8 @@ import com.revenuecat.purchases.awaitLogOut
 import com.revenuecat.purchases.awaitPurchase
 import com.revenuecat.purchases.awaitRestore
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
-import com.revenuecat.purchases.models.GoogleReplacementMode
 import com.revenuecat.purchases.models.StoreProduct
+import com.revenuecat.purchases.models.StoreReplacementMode
 import com.revenuecat.purchases.models.StoreTransaction
 import com.vdharmani.subscription.AlreadyOwnedException
 import com.vdharmani.subscription.BillingNetworkException
@@ -146,8 +146,11 @@ class RevenueCatProvider(
     ): Result<Receipt> = runCatching {
         buyProduct(activity, productId, ProductType.SUBS) { builder ->
             builder
-                .oldProductId(oldProductId)
-                .googleReplacementMode(replacementMode.toRevenueCat())
+                // Play identifies the purchase being replaced by subscription id
+                // alone — it ignores any base-plan suffix — so a base-plan switch
+                // inside one subscription passes the same id here.
+                .oldProductId(oldProductId.substringBefore(BASE_PLAN_SEPARATOR))
+                .replacementMode(replacementMode.toRevenueCat())
         }
     }
 
@@ -163,11 +166,23 @@ class RevenueCatProvider(
         configure: (PurchaseParams.Builder) -> PurchaseParams.Builder,
     ): Receipt {
         val rcType = productType.toRevenueCat()
+        // Play is queried by the bare subscription id; a "productId:basePlanId"
+        // caller id selects which base plan of that subscription to buy.
+        val storeProductId = productId.substringBefore(BASE_PLAN_SEPARATOR)
+        val basePlanId = productId.substringAfter(BASE_PLAN_SEPARATOR, missingDelimiterValue = "")
         val products: List<StoreProduct> = Purchases.sharedInstance.awaitGetProducts(
-            productIds = listOf(productId),
+            productIds = listOf(storeProductId),
             type = rcType,
         )
-        val product = products.firstOrNull { it.id == productId || it.id.startsWith("$productId:") }
+        val product = if (basePlanId.isEmpty()) {
+            // No base plan asked for: exact id first, then the single base plan
+            // of a one-plan subscription.
+            products.firstOrNull { it.id == productId }
+                ?: products.singleOrNull { it.id.startsWith("$productId$BASE_PLAN_SEPARATOR") }
+                ?: products.firstOrNull { it.id.startsWith("$productId$BASE_PLAN_SEPARATOR") }
+        } else {
+            products.firstOrNull { it.id == productId }
+        }
             ?: error("Product not found in Play Console: $productId (type=$productType)")
 
         val params = configure(PurchaseParams.Builder(activity, product)).build()
@@ -231,12 +246,12 @@ class RevenueCatProvider(
         ProductType.SUBS -> RcProductType.SUBS
     }
 
-    private fun ReplacementMode.toRevenueCat(): GoogleReplacementMode = when (this) {
-        ReplacementMode.CHARGE_PRORATED_PRICE -> GoogleReplacementMode.CHARGE_PRORATED_PRICE
-        ReplacementMode.WITH_TIME_PRORATION -> GoogleReplacementMode.WITH_TIME_PRORATION
-        ReplacementMode.WITHOUT_PRORATION -> GoogleReplacementMode.WITHOUT_PRORATION
-        ReplacementMode.CHARGE_FULL_PRICE -> GoogleReplacementMode.CHARGE_FULL_PRICE
-        ReplacementMode.DEFERRED -> GoogleReplacementMode.DEFERRED
+    private fun ReplacementMode.toRevenueCat(): StoreReplacementMode = when (this) {
+        ReplacementMode.CHARGE_PRORATED_PRICE -> StoreReplacementMode.CHARGE_PRORATED_PRICE
+        ReplacementMode.WITH_TIME_PRORATION -> StoreReplacementMode.WITH_TIME_PRORATION
+        ReplacementMode.WITHOUT_PRORATION -> StoreReplacementMode.WITHOUT_PRORATION
+        ReplacementMode.CHARGE_FULL_PRICE -> StoreReplacementMode.CHARGE_FULL_PRICE
+        ReplacementMode.DEFERRED -> StoreReplacementMode.DEFERRED
     }
 
     private fun StoreProduct.toReceipt(
@@ -300,5 +315,10 @@ class RevenueCatProvider(
 
         else ->
             UnknownBillingException(error.message, this)
+    }
+
+    private companion object {
+        /** Play's `productId:basePlanId` separator, as used in `StoreProduct.id`. */
+        const val BASE_PLAN_SEPARATOR = ":"
     }
 }

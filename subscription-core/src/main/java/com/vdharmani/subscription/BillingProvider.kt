@@ -38,6 +38,11 @@ interface BillingProvider {
      * the user completes or cancels the flow. Cancellation produces
      * `Result.failure(PurchaseCancelledException)`; treat it as a normal user
      * action, not an error to surface.
+     *
+     * **Base plans.** A Play subscription can carry several base plans (one
+     * product, e.g. a monthly and a yearly plan). Pass `"productId:basePlanId"`
+     * to buy a specific one; a bare `"productId"` is only unambiguous when the
+     * subscription has a single base plan.
      */
     suspend fun purchase(
         activity: Activity,
@@ -49,6 +54,11 @@ interface BillingProvider {
      * Switch an **active** subscription from [oldProductId] to [productId] —
      * the upgrade/downgrade flow. Distinct from [purchase], which would leave
      * the user paying for both plans.
+     *
+     * Switching between base plans of the *same* subscription is the same call:
+     * `productId = "premium:yearly"`, `oldProductId = "premium:monthly"` (Play
+     * identifies the purchase being replaced by subscription id alone, so the
+     * old base-plan suffix is ignored — passing it is just self-documenting).
      *
      * [replacementMode] decides how the unused time on the old plan is settled;
      * see [ReplacementMode] for which one fits an upgrade vs a downgrade. Note
