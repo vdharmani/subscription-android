@@ -32,6 +32,7 @@ import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -163,6 +164,22 @@ class RevenueCatProvider(
 
     override suspend fun identify(appUserId: String): Result<CustomerInfo> = runCatching {
         Purchases.sharedInstance.awaitLogIn(appUserId).customerInfo.toCustomerInfo()
+    }
+
+    /**
+     * RevenueCat's attribute setters are fire-and-forget: values are stored
+     * locally against the current app user id and uploaded with the next sync,
+     * so this returns as soon as they're accepted. Null fields are skipped
+     * (leave untouched); a blank value is passed through, which is how
+     * RevenueCat deletes an attribute.
+     */
+    override suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> = runCatching {
+        if (attributes.isEmpty) return@runCatching
+        val purchases = Purchases.sharedInstance
+        attributes.email?.let(purchases::setEmail)
+        attributes.displayName?.let(purchases::setDisplayName)
+        attributes.phoneNumber?.let(purchases::setPhoneNumber)
+        if (attributes.custom.isNotEmpty()) purchases.setAttributes(attributes.custom)
     }
 
     override suspend fun logout(): Result<CustomerInfo> = runCatching {

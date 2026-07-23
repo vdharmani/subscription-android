@@ -17,6 +17,9 @@ touching call sites.
   both one-shot purchases and auto-renewing subscriptions.
 - 🔄 **Restore + identify + logout** are first-class — no need to drop down
   to the SDK for the App Store / Play Store basics.
+- 🏷️ **Subscriber attributes.** `setAttributes(...)` puts the purchase email
+  (plus name, phone, or your own keys) next to the transaction in the
+  provider dashboard.
 - 📡 **Live customer state.** `observeCustomerInfo()` (Flow on the View side,
   `State` in Compose) updates on renewal, billing failure, restore, and
   identity switch.
@@ -45,9 +48,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.1.2")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.2.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.1.2")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.2.0")
 }
 ```
 
@@ -203,6 +206,33 @@ see the change automatically.
 
 ---
 
+## Subscriber attributes (purchase email & co.)
+
+`identify()` says *who* is buying; attributes say *how to reach them*. Send
+them right after a successful `identify()` — they attach to whichever identity
+is active at the time:
+
+```kotlin
+sub.identify(appUserId = user.id)
+sub.setAttributes(
+    SubscriberAttributes(
+        email = user.email,          // shown against the purchase in the dashboard
+        displayName = user.fullName,
+        custom = mapOf("plan_source" to "trial"),
+    ),
+)
+```
+
+Per field: `null` leaves the existing value untouched, `""` clears it. Anything
+you don't pass is left alone, so it's safe to call with just the one field you
+know. Attributes are metadata, not entitlement state — providers upload them in
+the background, so `Result.success` means *accepted*, not *synced*.
+
+A provider whose SDK has no attribute concept inherits the interface default
+(a no-op success), so this never breaks a custom `BillingProvider`.
+
+---
+
 ## Configuration
 
 `SubscriptionClient.Config`:
@@ -225,6 +255,10 @@ class MyPlayBillingProvider(context: Context) : BillingProvider {
     override suspend fun identify(appUserId: String): Result<CustomerInfo> { /* ... */ }
     override suspend fun logout(): Result<CustomerInfo> { /* ... */ }
     override fun observeCustomerInfo(): Flow<CustomerInfo> { /* ... */ }
+
+    // Optional — defaults to a no-op success. Override only if your SDK
+    // supports subscriber metadata.
+    override suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> { /* ... */ }
 }
 ```
 

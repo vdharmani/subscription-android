@@ -9,6 +9,7 @@ import com.vdharmani.subscription.internal.playStoreInstallerCheck
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
@@ -85,6 +86,14 @@ class SubscriptionClient private constructor(
     suspend fun identify(appUserId: String): Result<CustomerInfo> = provider.identify(appUserId)
     suspend fun logout(): Result<CustomerInfo> = provider.logout()
 
+    /**
+     * Attach subscriber metadata (purchase email, display name, custom keys) to
+     * the current identity — call after [identify]. See
+     * [BillingProvider.setAttributes].
+     */
+    suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> =
+        provider.setAttributes(attributes)
+
     /** Hot flow of customer-info updates. See [BillingProvider.observeCustomerInfo]. */
     fun observeCustomerInfo(): Flow<CustomerInfo> = provider.observeCustomerInfo()
 
@@ -112,5 +121,9 @@ class SubscriptionClient private constructor(
 
     fun logout(onResult: (Result<CustomerInfo>) -> Unit) {
         lifecycleOwner.lifecycleScope.launch { onResult(logout()) }
+    }
+
+    fun setAttributes(attributes: SubscriberAttributes, onResult: (Result<Unit>) -> Unit) {
+        lifecycleOwner.lifecycleScope.launch { onResult(setAttributes(attributes)) }
     }
 }

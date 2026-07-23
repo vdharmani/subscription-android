@@ -4,6 +4,7 @@ import androidx.compose.runtime.State
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.SubscriberAttributes
 
 /**
  * Compose-side counterpart to `SubscriptionClient`. Construct via
@@ -17,6 +18,7 @@ class SubscriptionComposeManager internal constructor(
     private val onRestore: suspend () -> Result<CustomerInfo>,
     private val onCustomerInfo: suspend () -> Result<CustomerInfo>,
     private val onIdentify: suspend (appUserId: String) -> Result<CustomerInfo>,
+    private val onSetAttributes: suspend (attributes: SubscriberAttributes) -> Result<Unit>,
     private val onLogout: suspend () -> Result<CustomerInfo>,
     /**
      * Lifecycle-aware snapshot of customer info, kept up to date by the
@@ -30,5 +32,9 @@ class SubscriptionComposeManager internal constructor(
     suspend fun restore(): Result<CustomerInfo> = onRestore()
     suspend fun customerInfo(): Result<CustomerInfo> = onCustomerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = onIdentify(appUserId)
+
+    /** Attach subscriber metadata to the current identity — call after [identify]. */
+    suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> = onSetAttributes(attributes)
+
     suspend fun logout(): Result<CustomerInfo> = onLogout()
 }

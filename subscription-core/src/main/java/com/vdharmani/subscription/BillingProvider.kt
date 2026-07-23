@@ -4,6 +4,7 @@ import android.app.Activity
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -63,6 +64,21 @@ interface BillingProvider {
      * Returns the [CustomerInfo] for the new identity.
      */
     suspend fun identify(appUserId: String): Result<CustomerInfo>
+
+    /**
+     * Attach [attributes] (purchase email, display name, custom keys) to the
+     * **current** billing identity, so a transaction can be traced back to a
+     * real account in the provider dashboard. Call after [identify] succeeds —
+     * attributes belong to whichever identity is active when they are sent.
+     *
+     * Attributes are metadata, not entitlement state: providers upload them in
+     * the background, so success here means "accepted", not "synced".
+     *
+     * The default is a no-op success, which keeps a [BillingProvider] whose SDK
+     * has no attribute concept source-compatible. Override it wherever the SDK
+     * does support them.
+     */
+    suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> = Result.success(Unit)
 
     /**
      * Drop the current identity and create a fresh anonymous one. Use on sign-out.

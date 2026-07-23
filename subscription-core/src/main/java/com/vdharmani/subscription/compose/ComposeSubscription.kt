@@ -69,6 +69,7 @@ fun ComposeSubscription(
             onRestore = { provider.restore() },
             onCustomerInfo = { provider.customerInfo() },
             onIdentify = { provider.identify(it) },
+            onSetAttributes = { provider.setAttributes(it) },
             onLogout = { provider.logout() },
             customerInfo = customerInfoState,
         )
