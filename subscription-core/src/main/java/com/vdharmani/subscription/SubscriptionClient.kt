@@ -9,6 +9,7 @@ import com.vdharmani.subscription.internal.playStoreInstallerCheck
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.ReplacementMode
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -81,6 +82,21 @@ class SubscriptionClient private constructor(
         return provider.purchase(activity, productId, productType)
     }
 
+    /**
+     * Switch the active subscription from [oldProductId] to [productId] — see
+     * [BillingProvider.changeSubscription]. Same installer check as [purchase].
+     */
+    suspend fun changeSubscription(
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+    ): Result<Receipt> {
+        if (config.requirePlayStoreInstaller) {
+            playStoreInstallerCheck(activity)?.let { return Result.failure(it) }
+        }
+        return provider.changeSubscription(activity, productId, oldProductId, replacementMode)
+    }
+
     suspend fun restore(): Result<CustomerInfo> = provider.restore()
     suspend fun customerInfo(): Result<CustomerInfo> = provider.customerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = provider.identify(appUserId)
@@ -105,6 +121,17 @@ class SubscriptionClient private constructor(
         onResult: (Result<Receipt>) -> Unit,
     ) {
         lifecycleOwner.lifecycleScope.launch { onResult(purchase(productId, productType)) }
+    }
+
+    fun changeSubscription(
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+        onResult: (Result<Receipt>) -> Unit,
+    ) {
+        lifecycleOwner.lifecycleScope.launch {
+            onResult(changeSubscription(productId, oldProductId, replacementMode))
+        }
     }
 
     fun restore(onResult: (Result<CustomerInfo>) -> Unit) {

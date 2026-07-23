@@ -18,6 +18,7 @@ import com.revenuecat.purchases.awaitLogOut
 import com.revenuecat.purchases.awaitPurchase
 import com.revenuecat.purchases.awaitRestore
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
+import com.revenuecat.purchases.models.GoogleReplacementMode
 import com.revenuecat.purchases.models.StoreProduct
 import com.revenuecat.purchases.models.StoreTransaction
 import com.vdharmani.subscription.AlreadyOwnedException
@@ -32,6 +33,7 @@ import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.ReplacementMode
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +130,38 @@ class RevenueCatProvider(
         productId: String,
         productType: ProductType,
     ): Result<Receipt> = runCatching {
+        buyProduct(activity, productId, productType) { it }
+    }
+
+    /**
+     * Plan switch. Play needs the product being *replaced* plus a replacement
+     * mode on the same purchase call — without them the store would start a
+     * second, parallel subscription instead of moving the user across.
+     */
+    override suspend fun changeSubscription(
+        activity: Activity,
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode,
+    ): Result<Receipt> = runCatching {
+        buyProduct(activity, productId, ProductType.SUBS) { builder ->
+            builder
+                .oldProductId(oldProductId)
+                .googleReplacementMode(replacementMode.toRevenueCat())
+        }
+    }
+
+    /**
+     * Shared purchase path: resolve the store product, let [configure] add any
+     * extra params (e.g. the plan-switch fields), run the flow, and map the
+     * outcome to a [Receipt]. SDK errors are typed on the way out.
+     */
+    private suspend fun buyProduct(
+        activity: Activity,
+        productId: String,
+        productType: ProductType,
+        configure: (PurchaseParams.Builder) -> PurchaseParams.Builder,
+    ): Receipt {
         val rcType = productType.toRevenueCat()
         val products: List<StoreProduct> = Purchases.sharedInstance.awaitGetProducts(
             productIds = listOf(productId),
@@ -136,14 +170,14 @@ class RevenueCatProvider(
         val product = products.firstOrNull { it.id == productId || it.id.startsWith("$productId:") }
             ?: error("Product not found in Play Console: $productId (type=$productType)")
 
-        val params = PurchaseParams.Builder(activity, product).build()
+        val params = configure(PurchaseParams.Builder(activity, product)).build()
         val outcome = try {
             Purchases.sharedInstance.awaitPurchase(params)
         } catch (e: PurchasesException) {
             throw e.toBillingException()
         }
 
-        product.toReceipt(
+        return product.toReceipt(
             appUserId = Purchases.sharedInstance.appUserID,
             productType = productType,
             transaction = outcome.storeTransaction,
@@ -195,6 +229,14 @@ class RevenueCatProvider(
     private fun ProductType.toRevenueCat(): RcProductType = when (this) {
         ProductType.INAPP -> RcProductType.INAPP
         ProductType.SUBS -> RcProductType.SUBS
+    }
+
+    private fun ReplacementMode.toRevenueCat(): GoogleReplacementMode = when (this) {
+        ReplacementMode.CHARGE_PRORATED_PRICE -> GoogleReplacementMode.CHARGE_PRORATED_PRICE
+        ReplacementMode.WITH_TIME_PRORATION -> GoogleReplacementMode.WITH_TIME_PRORATION
+        ReplacementMode.WITHOUT_PRORATION -> GoogleReplacementMode.WITHOUT_PRORATION
+        ReplacementMode.CHARGE_FULL_PRICE -> GoogleReplacementMode.CHARGE_FULL_PRICE
+        ReplacementMode.DEFERRED -> GoogleReplacementMode.DEFERRED
     }
 
     private fun StoreProduct.toReceipt(

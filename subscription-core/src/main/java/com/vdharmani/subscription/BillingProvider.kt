@@ -4,6 +4,7 @@ import android.app.Activity
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.ReplacementMode
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 
@@ -43,6 +44,29 @@ interface BillingProvider {
         productId: String,
         productType: ProductType,
     ): Result<Receipt>
+
+    /**
+     * Switch an **active** subscription from [oldProductId] to [productId] —
+     * the upgrade/downgrade flow. Distinct from [purchase], which would leave
+     * the user paying for both plans.
+     *
+     * [replacementMode] decides how the unused time on the old plan is settled;
+     * see [ReplacementMode] for which one fits an upgrade vs a downgrade. Note
+     * that [ReplacementMode.DEFERRED] resolves successfully *before* the new
+     * plan starts — the receipt describes the queued change, and entitlements
+     * only move at the next renewal.
+     *
+     * Cancellation produces `Result.failure(PurchaseCancelledException)`, same
+     * as [purchase]. The default implementation fails with
+     * [SubscriptionChangeUnsupportedException] so providers written against an
+     * SDK without a switch flow stay source-compatible.
+     */
+    suspend fun changeSubscription(
+        activity: Activity,
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+    ): Result<Receipt> = Result.failure(SubscriptionChangeUnsupportedException())
 
     /**
      * Re-sync the user's purchase history with the Play Store. Useful for the
@@ -147,6 +171,13 @@ class AlreadyOwnedException(message: String? = null, cause: Throwable? = null) :
 /** Store-side problem (backend down, unexpected response). Retrying may help. */
 class StoreProblemException(message: String? = null, cause: Throwable? = null) :
     BillingException(message ?: "Store reported a problem", cause)
+
+/**
+ * The provider has no plan-switch flow — `changeSubscription` was called on an
+ * implementation that only supports plain purchases.
+ */
+class SubscriptionChangeUnsupportedException(message: String? = null) :
+    BillingException(message ?: "This provider does not support switching subscription plans")
 
 /** Catch-all for failures that don't map to a more specific subclass. */
 class UnknownBillingException(message: String? = null, cause: Throwable? = null) :

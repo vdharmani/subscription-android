@@ -66,6 +66,18 @@ fun ComposeSubscription(
                 }
                 provider.purchase(activity, productId, productType)
             },
+            onChangeSubscription = { productId, oldProductId, replacementMode ->
+                val activity = context.findActivity()
+                    ?: return@SubscriptionComposeManager Result.failure(
+                        IllegalStateException("ComposeSubscription must be hosted in an Activity to launch purchases."),
+                    )
+                if (config.requirePlayStoreInstaller) {
+                    playStoreInstallerCheck(context)?.let {
+                        return@SubscriptionComposeManager Result.failure(it)
+                    }
+                }
+                provider.changeSubscription(activity, productId, oldProductId, replacementMode)
+            },
             onRestore = { provider.restore() },
             onCustomerInfo = { provider.customerInfo() },
             onIdentify = { provider.identify(it) },

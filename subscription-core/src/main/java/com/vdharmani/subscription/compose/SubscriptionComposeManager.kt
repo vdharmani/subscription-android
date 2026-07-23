@@ -4,6 +4,7 @@ import androidx.compose.runtime.State
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
+import com.vdharmani.subscription.model.ReplacementMode
 import com.vdharmani.subscription.model.SubscriberAttributes
 
 /**
@@ -15,6 +16,11 @@ import com.vdharmani.subscription.model.SubscriberAttributes
  */
 class SubscriptionComposeManager internal constructor(
     private val onPurchase: suspend (productId: String, productType: ProductType) -> Result<Receipt>,
+    private val onChangeSubscription: suspend (
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode,
+    ) -> Result<Receipt>,
     private val onRestore: suspend () -> Result<CustomerInfo>,
     private val onCustomerInfo: suspend () -> Result<CustomerInfo>,
     private val onIdentify: suspend (appUserId: String) -> Result<CustomerInfo>,
@@ -28,6 +34,13 @@ class SubscriptionComposeManager internal constructor(
 ) {
     suspend fun purchase(productId: String, productType: ProductType): Result<Receipt> =
         onPurchase(productId, productType)
+
+    /** Upgrade/downgrade an active subscription. See `BillingProvider.changeSubscription`. */
+    suspend fun changeSubscription(
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+    ): Result<Receipt> = onChangeSubscription(productId, oldProductId, replacementMode)
 
     suspend fun restore(): Result<CustomerInfo> = onRestore()
     suspend fun customerInfo(): Result<CustomerInfo> = onCustomerInfo()

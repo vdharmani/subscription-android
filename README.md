@@ -17,6 +17,8 @@ touching call sites.
   both one-shot purchases and auto-renewing subscriptions.
 - 🔄 **Restore + identify + logout** are first-class — no need to drop down
   to the SDK for the App Store / Play Store basics.
+- ⬆️ **Plan switching.** `changeSubscription(new, old, mode)` does a real Play
+  upgrade/downgrade with proration — not a second parallel purchase.
 - 🏷️ **Subscriber attributes.** `setAttributes(...)` puts the purchase email
   (plus name, phone, or your own keys) next to the transaction in the
   provider dashboard.
@@ -48,9 +50,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.2.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.3.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.2.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.3.0")
 }
 ```
 
@@ -233,6 +235,46 @@ A provider whose SDK has no attribute concept inherits the interface default
 
 ---
 
+## Upgrade / downgrade an active subscription
+
+Switching plans is **not** a second `purchase()` — that leaves the user paying
+for both. Play needs the product being replaced plus a replacement mode, which
+is what `changeSubscription` sends:
+
+```kotlin
+// Monthly → Annual: charge the prorated difference now, keep the billing date
+sub.changeSubscription(
+    productId = "premium_annual",
+    oldProductId = "premium_monthly",
+    replacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+)
+
+// Annual → Monthly: let the paid-for year run out first
+sub.changeSubscription(
+    productId = "premium_monthly",
+    oldProductId = "premium_annual",
+    replacementMode = ReplacementMode.DEFERRED,
+)
+```
+
+| Mode | Charged today | Switch takes effect |
+|---|---|---|
+| `CHARGE_PRORATED_PRICE` *(default)* | Prorated difference | Immediately, billing date unchanged |
+| `WITH_TIME_PRORATION` | Nothing | Immediately, next billing date pushed out |
+| `WITHOUT_PRORATION` | Nothing | Immediately, unused time forfeited |
+| `CHARGE_FULL_PRICE` | Full new price | Immediately, period restarts |
+| `DEFERRED` | Nothing | At the end of the current period |
+
+`DEFERRED` resolves successfully *before* the new plan starts — the receipt
+describes the queued change, and entitlements only move at renewal, so don't
+treat that success as "the user is on the new plan now".
+
+Both hosts have it (`SubscriptionClient` suspend + callback, and the Compose
+manager). A provider that can't switch plans inherits the interface default,
+which fails with `SubscriptionChangeUnsupportedException`.
+
+---
+
 ## Configuration
 
 `SubscriptionClient.Config`:
@@ -250,6 +292,13 @@ If you want native Play Billing or a different SDK, implement the SPI:
 ```kotlin
 class MyPlayBillingProvider(context: Context) : BillingProvider {
     override suspend fun purchase(activity: Activity, productId: String, productType: ProductType): Result<Receipt> { /* ... */ }
+    // Optional — defaults to SubscriptionChangeUnsupportedException.
+    override suspend fun changeSubscription(
+        activity: Activity,
+        productId: String,
+        oldProductId: String,
+        replacementMode: ReplacementMode,
+    ): Result<Receipt> { /* ... */ }
     override suspend fun restore(): Result<CustomerInfo> { /* ... */ }
     override suspend fun customerInfo(): Result<CustomerInfo> { /* ... */ }
     override suspend fun identify(appUserId: String): Result<CustomerInfo> { /* ... */ }
