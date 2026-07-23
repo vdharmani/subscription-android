@@ -18,6 +18,9 @@ import com.revenuecat.purchases.awaitLogOut
 import com.revenuecat.purchases.awaitPurchase
 import com.revenuecat.purchases.awaitRestore
 import com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener
+import com.revenuecat.purchases.models.GoogleStoreProduct
+import com.revenuecat.purchases.models.Period as RcPeriod
+import com.revenuecat.purchases.models.Price as RcPrice
 import com.revenuecat.purchases.models.StoreProduct
 import com.revenuecat.purchases.models.StoreReplacementMode
 import com.revenuecat.purchases.models.StoreTransaction
@@ -31,6 +34,9 @@ import com.vdharmani.subscription.StoreProblemException
 import com.vdharmani.subscription.UnknownBillingException
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
+import com.vdharmani.subscription.model.Period
+import com.vdharmani.subscription.model.Price
+import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
@@ -121,6 +127,23 @@ class RevenueCatProvider(
                 customerInfoSink.tryEmit(snapshot.toCustomerInfo())
             }
         }
+    }
+
+    // -- catalogue --------------------------------------------------------
+
+    /**
+     * Prices come back already localised by Play for the user's region, so the
+     * caller renders [Price.formatted] as-is. Callers may pass ids either bare
+     * or as `"productId:basePlanId"`; Play is queried with the bare ids, and a
+     * subscription with several base plans yields one entry per plan.
+     */
+    override suspend fun products(
+        productIds: List<String>,
+        productType: ProductType,
+    ): Result<List<Product>> = runCatching {
+        val storeIds = productIds.map { it.substringBefore(BASE_PLAN_SEPARATOR) }.distinct()
+        Purchases.sharedInstance.awaitGetProducts(productIds = storeIds, type = productType.toRevenueCat())
+            .map { it.toProduct(productType) }
     }
 
     // -- purchase ---------------------------------------------------------
@@ -253,6 +276,43 @@ class RevenueCatProvider(
         ReplacementMode.CHARGE_FULL_PRICE -> StoreReplacementMode.CHARGE_FULL_PRICE
         ReplacementMode.DEFERRED -> StoreReplacementMode.DEFERRED
     }
+
+    private fun StoreProduct.toProduct(productType: ProductType): Product {
+        // GoogleStoreProduct splits the id for us; other stores have no base
+        // plans, so the whole id is the product id.
+        val google = this as? GoogleStoreProduct
+        return Product(
+            id = id,
+            productId = google?.productId ?: id,
+            basePlanId = google?.basePlanId,
+            type = productType,
+            title = title,
+            description = description,
+            price = price.toPrice(),
+            billingPeriod = period?.toPeriod(),
+            // The store's own trial lives on the free-trial offer of the base
+            // plan, not on the product itself.
+            freeTrialPeriod = subscriptionOptions?.freeTrial?.freePhase?.billingPeriod?.toPeriod(),
+        )
+    }
+
+    private fun RcPrice.toPrice(): Price = Price(
+        formatted = formatted,
+        amountMicros = amountMicros,
+        currencyCode = currencyCode,
+    )
+
+    private fun RcPeriod.toPeriod(): Period = Period(
+        value = value,
+        unit = when (unit) {
+            RcPeriod.Unit.DAY -> Period.Unit.DAY
+            RcPeriod.Unit.WEEK -> Period.Unit.WEEK
+            RcPeriod.Unit.MONTH -> Period.Unit.MONTH
+            RcPeriod.Unit.YEAR -> Period.Unit.YEAR
+            else -> Period.Unit.UNKNOWN
+        },
+        iso8601 = iso8601,
+    )
 
     private fun StoreProduct.toReceipt(
         appUserId: String,

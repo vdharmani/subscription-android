@@ -2,6 +2,7 @@ package com.vdharmani.subscription.compose
 
 import androidx.compose.runtime.State
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
@@ -21,6 +22,10 @@ class SubscriptionComposeManager internal constructor(
         oldProductId: String,
         replacementMode: ReplacementMode,
     ) -> Result<Receipt>,
+    private val onProducts: suspend (
+        productIds: List<String>,
+        productType: ProductType,
+    ) -> Result<List<Product>>,
     private val onRestore: suspend () -> Result<CustomerInfo>,
     private val onCustomerInfo: suspend () -> Result<CustomerInfo>,
     private val onIdentify: suspend (appUserId: String) -> Result<CustomerInfo>,
@@ -41,6 +46,12 @@ class SubscriptionComposeManager internal constructor(
         oldProductId: String,
         replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
     ): Result<Receipt> = onChangeSubscription(productId, oldProductId, replacementMode)
+
+    /** Store-localised products for the paywall. See `BillingProvider.products`. */
+    suspend fun products(
+        productIds: List<String>,
+        productType: ProductType = ProductType.SUBS,
+    ): Result<List<Product>> = onProducts(productIds, productType)
 
     suspend fun restore(): Result<CustomerInfo> = onRestore()
     suspend fun customerInfo(): Result<CustomerInfo> = onCustomerInfo()

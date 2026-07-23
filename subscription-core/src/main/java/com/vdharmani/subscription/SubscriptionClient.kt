@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.vdharmani.subscription.internal.playStoreInstallerCheck
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
@@ -97,6 +98,14 @@ class SubscriptionClient private constructor(
         return provider.changeSubscription(activity, productId, oldProductId, replacementMode)
     }
 
+    /**
+     * Store-localised products for the paywall. See [BillingProvider.products].
+     */
+    suspend fun products(
+        productIds: List<String>,
+        productType: ProductType = ProductType.SUBS,
+    ): Result<List<Product>> = provider.products(productIds, productType)
+
     suspend fun restore(): Result<CustomerInfo> = provider.restore()
     suspend fun customerInfo(): Result<CustomerInfo> = provider.customerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = provider.identify(appUserId)
@@ -132,6 +141,14 @@ class SubscriptionClient private constructor(
         lifecycleOwner.lifecycleScope.launch {
             onResult(changeSubscription(productId, oldProductId, replacementMode))
         }
+    }
+
+    fun products(
+        productIds: List<String>,
+        productType: ProductType = ProductType.SUBS,
+        onResult: (Result<List<Product>>) -> Unit,
+    ) {
+        lifecycleOwner.lifecycleScope.launch { onResult(products(productIds, productType)) }
     }
 
     fun restore(onResult: (Result<CustomerInfo>) -> Unit) {

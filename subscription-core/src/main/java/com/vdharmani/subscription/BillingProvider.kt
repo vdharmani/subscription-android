@@ -2,6 +2,7 @@ package com.vdharmani.subscription
 
 import android.app.Activity
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
@@ -29,6 +30,25 @@ import kotlinx.coroutines.flow.Flow
  * declined" and end up with one generic error UI.
  */
 interface BillingProvider {
+
+    /**
+     * Fetch [productIds] as the store describes them **for this user** — prices
+     * already converted, formatted, and localised for their region. Build your
+     * paywall from these instead of hardcoding prices, and a console re-price
+     * or a user in another country needs no app release.
+     *
+     * Ids that don't exist in the console are simply absent from the result, so
+     * check what came back rather than assuming a 1:1 mapping. A Google
+     * subscription with several base plans returns **one [Product] per base
+     * plan**, each with the `"productId:basePlanId"` id that [purchase] wants.
+     *
+     * The default fails with [ProductQueryUnsupportedException] so providers
+     * written before this existed stay source-compatible.
+     */
+    suspend fun products(
+        productIds: List<String>,
+        productType: ProductType = ProductType.SUBS,
+    ): Result<List<Product>> = Result.failure(ProductQueryUnsupportedException())
 
     /**
      * Launch the platform purchase flow for [productId] of [productType].
@@ -181,6 +201,13 @@ class AlreadyOwnedException(message: String? = null, cause: Throwable? = null) :
 /** Store-side problem (backend down, unexpected response). Retrying may help. */
 class StoreProblemException(message: String? = null, cause: Throwable? = null) :
     BillingException(message ?: "Store reported a problem", cause)
+
+/**
+ * The provider can't list products — `products` was called on an implementation
+ * that only supports purchasing by known id.
+ */
+class ProductQueryUnsupportedException(message: String? = null) :
+    BillingException(message ?: "This provider does not support querying products")
 
 /**
  * The provider has no plan-switch flow — `changeSubscription` was called on an

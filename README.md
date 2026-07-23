@@ -13,6 +13,8 @@ touching call sites.
 
 ## Highlights
 
+- 🌍 **Live, localised prices.** `products(...)` gives you the store's own
+  formatted price per region — no hardcoded numbers, no release to re-price.
 - 🛒 **One API for INAPP + SUBS.** `purchase(productId, productType)` covers
   both one-shot purchases and auto-renewing subscriptions — pass
   `"productId:basePlanId"` to target one base plan of a multi-plan subscription.
@@ -51,9 +53,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.3.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.4.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.3.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.4.0")
 }
 ```
 
@@ -191,6 +193,37 @@ lifecycle, so callbacks don't outlive it.
 
 ---
 
+## Live, region-correct prices
+
+Never hardcode prices. `products(...)` returns what the store charges **this**
+user, already converted and formatted for their currency and locale, so a
+re-price in the console or a user in another country needs no app release:
+
+```kotlin
+val plans = sub.products(listOf("premium:monthly", "premium:yearly")).getOrDefault(emptyList())
+
+plans.forEach { p ->
+    Text(p.title)                       // "ProStyk Premium"
+    Text(p.price.formatted)             // "₹1,600.00" / "$20.00" — render as-is
+    Text("/${p.billingPeriod?.unit}")   // MONTH / YEAR — no string parsing
+    p.freeTrialPeriod?.let { Text("${it.value} ${it.unit} free") }
+}
+```
+
+- One entry **per base plan**: a subscription with monthly + yearly plans comes
+  back as two products, each carrying the `"productId:basePlanId"` id that
+  `purchase` wants — so the card the user taps and the plan they get can't drift
+  apart.
+- Ids the console doesn't know are simply missing from the list; check what came
+  back rather than indexing blindly.
+- `price.formatted` is for display; `amountMicros` + `currencyCode` are for
+  maths and analytics. `pricePerMonthMicros` does the "₹X/mo billed yearly"
+  arithmetic for you.
+- Keep a hardcoded fallback for the offline/misconfigured case — this call needs
+  the store to answer.
+
+---
+
 ## Identification (sign-in / sign-out)
 
 Tie purchases to your app's logged-in user so they survive a device wipe or
@@ -296,6 +329,8 @@ If you want native Play Billing or a different SDK, implement the SPI:
 ```kotlin
 class MyPlayBillingProvider(context: Context) : BillingProvider {
     override suspend fun purchase(activity: Activity, productId: String, productType: ProductType): Result<Receipt> { /* ... */ }
+    // Optional — defaults to ProductQueryUnsupportedException.
+    override suspend fun products(productIds: List<String>, productType: ProductType): Result<List<Product>> { /* ... */ }
     // Optional — defaults to SubscriptionChangeUnsupportedException.
     override suspend fun changeSubscription(
         activity: Activity,

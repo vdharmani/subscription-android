@@ -78,6 +78,7 @@ fun ComposeSubscription(
                 }
                 provider.changeSubscription(activity, productId, oldProductId, replacementMode)
             },
+            onProducts = { productIds, productType -> provider.products(productIds, productType) },
             onRestore = { provider.restore() },
             onCustomerInfo = { provider.customerInfo() },
             onIdentify = { provider.identify(it) },
