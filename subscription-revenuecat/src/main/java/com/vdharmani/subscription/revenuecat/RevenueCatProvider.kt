@@ -2,6 +2,7 @@ package com.vdharmani.subscription.revenuecat
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import com.revenuecat.purchases.CustomerInfo as RcCustomerInfo
 import com.revenuecat.purchases.EntitlementInfo
 import com.revenuecat.purchases.LogLevel
@@ -160,6 +161,11 @@ class RevenueCatProvider(
      * Plan switch. Play needs the product being *replaced* plus a replacement
      * mode on the same purchase call — without them the store would start a
      * second, parallel subscription instead of moving the user across.
+     *
+     * Switching between base plans of one subscription is the stricter case:
+     * Play only accepts `CHARGE_FULL_PRICE` and `WITHOUT_PRORATION` there and
+     * fails the purchase outright for the rest, so an unusable mode is mapped
+     * onto its closest legal equivalent rather than handed to the store.
      */
     override suspend fun changeSubscription(
         activity: Activity,
@@ -167,13 +173,26 @@ class RevenueCatProvider(
         oldProductId: String,
         replacementMode: ReplacementMode,
     ): Result<Receipt> = runCatching {
+        val oldStoreProductId = oldProductId.substringBefore(BASE_PLAN_SEPARATOR)
+        val sameSubscription = oldStoreProductId == productId.substringBefore(BASE_PLAN_SEPARATOR)
+        val effectiveMode = if (sameSubscription && !replacementMode.isSameSubscriptionSafe) {
+            replacementMode.sameSubscriptionEquivalent().also { fallback ->
+                Log.w(
+                    TAG,
+                    "Play rejects $replacementMode when switching base plans of $oldStoreProductId; " +
+                        "using $fallback instead.",
+                )
+            }
+        } else {
+            replacementMode
+        }
         buyProduct(activity, productId, ProductType.SUBS) { builder ->
             builder
                 // Play identifies the purchase being replaced by subscription id
                 // alone — it ignores any base-plan suffix — so a base-plan switch
                 // inside one subscription passes the same id here.
-                .oldProductId(oldProductId.substringBefore(BASE_PLAN_SEPARATOR))
-                .replacementMode(replacementMode.toRevenueCat())
+                .oldProductId(oldStoreProductId)
+                .replacementMode(effectiveMode.toRevenueCat())
         }
     }
 
@@ -378,6 +397,8 @@ class RevenueCatProvider(
     }
 
     private companion object {
+        const val TAG = "RevenueCatProvider"
+
         /** Play's `productId:basePlanId` separator, as used in `StoreProduct.id`. */
         const val BASE_PLAN_SEPARATOR = ":"
     }

@@ -90,7 +90,7 @@ class SubscriptionClient private constructor(
     suspend fun changeSubscription(
         productId: String,
         oldProductId: String,
-        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_FULL_PRICE,
     ): Result<Receipt> {
         if (config.requirePlayStoreInstaller) {
             playStoreInstallerCheck(activity)?.let { return Result.failure(it) }
@@ -135,7 +135,7 @@ class SubscriptionClient private constructor(
     fun changeSubscription(
         productId: String,
         oldProductId: String,
-        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_FULL_PRICE,
         onResult: (Result<Receipt>) -> Unit,
     ) {
         lifecycleOwner.lifecycleScope.launch {

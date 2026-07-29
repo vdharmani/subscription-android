@@ -80,11 +80,14 @@ interface BillingProvider {
      * identifies the purchase being replaced by subscription id alone, so the
      * old base-plan suffix is ignored — passing it is just self-documenting).
      *
-     * [replacementMode] decides how the unused time on the old plan is settled;
-     * see [ReplacementMode] for which one fits an upgrade vs a downgrade. Note
-     * that [ReplacementMode.DEFERRED] resolves successfully *before* the new
-     * plan starts — the receipt describes the queued change, and entitlements
-     * only move at the next renewal.
+     * [replacementMode] decides how the unused time on the old plan is settled.
+     * Play only accepts [ReplacementMode.CHARGE_FULL_PRICE] and
+     * [ReplacementMode.WITHOUT_PRORATION] for a switch inside one subscription
+     * product, so `ReplacementMode.forPlanSwitch(isUpgrade)` is the safe way to
+     * choose one; see [ReplacementMode] for the per-mode rules. Note that
+     * [ReplacementMode.DEFERRED] resolves successfully *before* the new plan
+     * starts — the receipt describes the queued change, and entitlements only
+     * move at the next renewal.
      *
      * Cancellation produces `Result.failure(PurchaseCancelledException)`, same
      * as [purchase]. The default implementation fails with
@@ -95,7 +98,7 @@ interface BillingProvider {
         activity: Activity,
         productId: String,
         oldProductId: String,
-        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_FULL_PRICE,
     ): Result<Receipt> = Result.failure(SubscriptionChangeUnsupportedException())
 
     /**

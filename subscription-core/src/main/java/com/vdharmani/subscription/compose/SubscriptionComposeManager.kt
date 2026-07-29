@@ -44,7 +44,7 @@ class SubscriptionComposeManager internal constructor(
     suspend fun changeSubscription(
         productId: String,
         oldProductId: String,
-        replacementMode: ReplacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+        replacementMode: ReplacementMode = ReplacementMode.CHARGE_FULL_PRICE,
     ): Result<Receipt> = onChangeSubscription(productId, oldProductId, replacementMode)
 
     /** Store-localised products for the paywall. See `BillingProvider.products`. */

@@ -21,7 +21,8 @@ touching call sites.
 - 🔄 **Restore + identify + logout** are first-class — no need to drop down
   to the SDK for the App Store / Play Store basics.
 - ⬆️ **Plan switching.** `changeSubscription(new, old, mode)` does a real Play
-  upgrade/downgrade with proration — not a second parallel purchase.
+  upgrade/downgrade with proration — not a second parallel purchase — and
+  `ReplacementMode.forPlanSwitch(isUpgrade)` picks a mode the store accepts.
 - 🏷️ **Subscriber attributes.** `setAttributes(...)` puts the purchase email
   (plus name, phone, or your own keys) next to the transaction in the
   provider dashboard.
@@ -53,9 +54,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.4.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.5.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.4.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.5.0")
 }
 ```
 
@@ -276,31 +277,43 @@ for both. Play needs the product being replaced plus a replacement mode, which
 is what `changeSubscription` sends:
 
 ```kotlin
-// Monthly → Yearly: charge the prorated difference now, keep the billing date
+// Monthly → Yearly: charge the year now, carry the unused monthly time over
 sub.changeSubscription(
     productId = "premium:yearly",
     oldProductId = "premium:monthly",
-    replacementMode = ReplacementMode.CHARGE_PRORATED_PRICE,
+    replacementMode = ReplacementMode.forPlanSwitch(isUpgrade = true),
 )
 
-// Yearly → Monthly: let the paid-for year run out first
+// Yearly → Monthly: nothing to pay until the paid-for year runs out
 sub.changeSubscription(
     productId = "premium:monthly",
     oldProductId = "premium:yearly",
-    replacementMode = ReplacementMode.DEFERRED,
+    replacementMode = ReplacementMode.forPlanSwitch(isUpgrade = false),
 )
 ```
 
 The example above is the common Play setup: **one** subscription product with
-two base plans. Separate products work the same way — pass their ids instead.
+two base plans. Separate products work the same way — pass their ids instead,
+and `forPlanSwitch(isUpgrade = false, sameSubscription = false)` if you want a
+downgrade deferred to the end of the period.
 
-| Mode | Charged today | Switch takes effect |
-|---|---|---|
-| `CHARGE_PRORATED_PRICE` *(default)* | Prorated difference | Immediately, billing date unchanged |
-| `WITH_TIME_PRORATION` | Nothing | Immediately, next billing date pushed out |
-| `WITHOUT_PRORATION` | Nothing | Immediately, unused time forfeited |
-| `CHARGE_FULL_PRICE` | Full new price | Immediately, period restarts |
-| `DEFERRED` | Nothing | At the end of the current period |
+| Mode | Charged today | Switch takes effect | Same product? |
+|---|---|---|---|
+| `CHARGE_FULL_PRICE` *(default)* | Full new price | Immediately, unused time carried over as credit | ✅ |
+| `WITHOUT_PRORATION` | Nothing | Immediately, new price at next renewal, billing date unchanged | ✅ |
+| `CHARGE_PRORATED_PRICE` | Prorated difference | Immediately, billing date unchanged | ❌ |
+| `WITH_TIME_PRORATION` | Nothing | Immediately, next billing date pushed out | ❌ |
+| `DEFERRED` | Nothing | At the end of the current period | ❌ |
+
+**Same product?** is what Play allows when both plans are base plans of *one*
+subscription — the setup in the example. There, only `CHARGE_FULL_PRICE` and
+`WITHOUT_PRORATION` are legal; the others make Play fail the purchase and show
+the user an error, so `RevenueCatProvider` maps them onto the closest legal mode
+(and logs a warning) instead of letting the flow die. `CHARGE_PRORATED_PRICE`
+carries a second restriction even across separate products: Play only accepts it
+when the price **per unit of time goes up**, which a discounted annual plan does
+not do. Use `ReplacementMode.forPlanSwitch(...)` and you don't have to track any
+of this.
 
 `DEFERRED` resolves successfully *before* the new plan starts — the receipt
 describes the queued change, and entitlements only move at renewal, so don't
