@@ -54,9 +54,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.5.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.5.1")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.5.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.5.1")
 }
 ```
 
