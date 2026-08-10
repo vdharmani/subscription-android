@@ -54,9 +54,9 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.5.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:1.6.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.5.1")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.6.0")
 }
 ```
 
@@ -290,6 +290,24 @@ sub.changeSubscription(
     oldProductId = "premium:yearly",
     replacementMode = ReplacementMode.forPlanSwitch(isUpgrade = false),
 )
+```
+
+`oldProductId` is the plan the user is on right now, and the store is what
+knows that — `Entitlement.id` carries the base plan, so read it from there
+rather than from whatever plan your own records last wrote down:
+
+```kotlin
+val active = sub.customerInfo().getOrNull()
+    ?.activeEntitlements
+    ?.firstOrNull { it.identifier == "premium" }
+
+active?.let {
+    sub.changeSubscription(
+        productId = "premium:yearly",
+        oldProductId = it.id,          // "premium:monthly"
+        replacementMode = ReplacementMode.forPlanSwitch(isUpgrade = true),
+    )
+}
 ```
 
 The example above is the common Play setup: **one** subscription product with

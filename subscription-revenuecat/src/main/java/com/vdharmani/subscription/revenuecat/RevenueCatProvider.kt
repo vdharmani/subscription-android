@@ -366,6 +366,10 @@ class RevenueCatProvider(
         expiresAtSeconds = expirationDate?.let { it.time / 1000L },
         willRenew = willRenew,
         isInGracePeriod = billingIssueDetectedAt != null,
+        // Google-only, so null on other stores. Without it every base plan of
+        // one subscription reports the same productId and the caller cannot
+        // tell which plan the user is actually on.
+        basePlanId = productPlanIdentifier,
     )
 
     private fun PurchasesException.toBillingException(): Throwable = when (code) {

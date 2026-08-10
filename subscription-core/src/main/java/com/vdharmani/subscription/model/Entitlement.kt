@@ -12,7 +12,12 @@ data class Entitlement(
     /** Stable identifier (e.g. `"premium"`). Configure these in your provider dashboard. */
     val identifier: String,
 
-    /** The product id that granted this entitlement most recently. */
+    /**
+     * Store product id that granted this entitlement most recently, without a
+     * base-plan suffix. When that product sells several base plans, this is the
+     * same string for all of them — [basePlanId] is what tells them apart, and
+     * [id] is the pair in the form `purchase` and `changeSubscription` take.
+     */
     val productId: String,
 
     /**
@@ -34,4 +39,22 @@ data class Entitlement(
 
     /** `true` while the user is in the billing grace period (last charge failed). */
     val isInGracePeriod: Boolean,
-)
+
+    /**
+     * Base plan the user is actually on (e.g. `"yearly-autorenew"`), or null
+     * when the store has no such concept or does not report it.
+     *
+     * Without this, monthly and yearly base plans of one subscription are
+     * indistinguishable — both arrive as the same [productId] — and an app is
+     * left inferring the current plan from its own records, which drift.
+     */
+    val basePlanId: String? = null,
+) {
+    /**
+     * The id to hand back to `purchase` / `changeSubscription`, and to match
+     * against a [Product.id]: `"productId:basePlanId"` when the store reports a
+     * base plan, otherwise just [productId].
+     */
+    val id: String
+        get() = basePlanId?.takeIf { it.isNotEmpty() }?.let { "$productId:$it" } ?: productId
+}

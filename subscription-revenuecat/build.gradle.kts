@@ -46,7 +46,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.vdharmani.subscription-android"
                 artifactId = "subscription-revenuecat"
-                version = "1.5.1"
+                version = "1.6.0"
             }
         }
     }
