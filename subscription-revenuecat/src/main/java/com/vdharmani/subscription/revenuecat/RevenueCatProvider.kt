@@ -3,6 +3,7 @@ package com.vdharmani.subscription.revenuecat
 import android.app.Activity
 import android.content.Context
 import android.util.Log
+import com.android.billingclient.api.Purchase
 import com.revenuecat.purchases.CustomerInfo as RcCustomerInfo
 import com.revenuecat.purchases.EntitlementInfo
 import com.revenuecat.purchases.LogLevel
@@ -101,6 +102,12 @@ class RevenueCatProvider(
      * fetch failure from cancelling future work.
      */
     private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Asks Play what the signed-in Play account owns. Built from the
+     * application context, so it never holds an Activity.
+     */
+    private val playStoreOwnership = PlayStoreOwnership(context)
 
     // replay=1 so late subscribers get the most-recent snapshot immediately.
     // extraBufferCapacity=1 + DROP_OLDEST so a slow collector can't cause
@@ -288,6 +295,50 @@ class RevenueCatProvider(
 
     override suspend fun logout(): Result<CustomerInfo> = runCatching {
         Purchases.sharedInstance.awaitLogOut().toCustomerInfo()
+    }
+
+    // -- store account ----------------------------------------------------
+
+    /**
+     * Whether the Play account signed in **right now** owns the purchase behind
+     * [entitlement] — the Case 5 check.
+     *
+     * RevenueCat reports entitlements from its backend and never exposes the
+     * Play purchase token, so this is answered by asking Play directly what the
+     * current account owns.
+     *
+     * The decision rests on **product ownership**, not on matching
+     * RevenueCat's `storeTransactionId`. That id comes from RevenueCat's
+     * backend and its exact form for Play is not part of the SDK contract, so
+     * building the check on it would risk matching nothing and blocking every
+     * plan change. A matching transaction id is accepted as a positive signal;
+     * it is never required for one.
+     *
+     * Returns `null` — "could not tell" — whenever Play cannot be reached, and
+     * for a purchase Play still reports as pending, since a half-finished
+     * purchase is not evidence of a different account.
+     */
+    override suspend fun ownedByCurrentStoreAccount(entitlement: Entitlement): Result<Boolean?> =
+        runCatching {
+            // Another store's entitlement is a cross-platform case, not an
+            // account switch; Play has nothing useful to say about it.
+            if (entitlement.store != Store.PLAY_STORE) return@runCatching null
+
+            val owned = playStoreOwnership.ownedSubscriptions() ?: return@runCatching null
+            val matching = owned.filter { it.matches(entitlement) }
+
+            when {
+                matching.any { it.purchaseState == Purchase.PurchaseState.PURCHASED } -> true
+                // Owned but still pending: mid-purchase, so decide nothing.
+                matching.isNotEmpty() -> null
+                else -> false
+            }
+        }
+
+    private fun Purchase.matches(entitlement: Entitlement): Boolean {
+        if (entitlement.productId in products) return true
+        val transactionId = entitlement.storeTransactionId ?: return false
+        return transactionId == purchaseToken || transactionId == orderId
     }
 
     // -- live updates -----------------------------------------------------

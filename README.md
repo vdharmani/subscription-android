@@ -362,7 +362,7 @@ handles them as follows.
 | 2 | Store sub linked to no app account | Restores and links normally (`RestoreOutcome.Restored`) |
 | 3 | Account deletion with an active subscription | `accountDeletion(...)` warning copy + `openManageSubscription()`; never blocks |
 | 4 | Store sub active, linked app account deleted | Same as case 2 — your backend soft-deletes the linkage row |
-| 5 | Plan change after store-account switch | `PlanChangeEligibility.Blocked(STORE_ACCOUNT_MISMATCH)` — needs a provider that implements `ownedByCurrentStoreAccount` |
+| 5 | Plan change after store-account switch | `PlanChangeEligibility.Blocked(STORE_ACCOUNT_MISMATCH)` — `RevenueCatProvider` detects this by asking Play what the signed-in account owns |
 | 6 | Grace / hold / paused / refunded | `Entitlement.status` + `grantsAccess`, with per-state copy |
 | 7 | Cross-platform entitlement | `PlanChangeEligibility.Blocked(CROSS_PLATFORM)` — access still granted |
 | 8 | Normal plan change, same store account | `changeSubscription(...)` + `ReplacementMode.forPlanSwitch(...)` |
@@ -458,7 +458,12 @@ when (val eligibility = sub.planChangeEligibility(currentProductId)) {
 ```
 
 `changeSubscription` runs the same check itself unless you set
-`Config(guardPlanChanges = false)`. It is worth the round trip: on Play a
+`Config(guardPlanChanges = false)`. With `RevenueCatProvider` the store-account
+half of the check queries Google Play directly — a short-lived
+`BillingClient` that connects, asks what the signed-in account owns, and
+disconnects, bounded by a 5-second timeout. It runs only on the plan-change
+path, and any failure to reach Play is treated as "could not tell", so the
+switch proceeds rather than being wrongly blocked. It is worth the round trip: on Play a
 switch against a token the current account doesn't own fails with a developer
 error, and on the App Store it fails *silently* — StoreKit only applies an
 upgrade when the same Apple ID owns the old subscription, so otherwise the
@@ -573,10 +578,11 @@ class MyPlayBillingProvider(context: Context) : BillingProvider {
     override val nativeStore: Store get() = Store.PLAY_STORE
 
     // Optional — defaults to Result.success(null), meaning "can't tell".
-    // Return false only when you have positively determined the signed-in
-    // store account does not own the purchase behind this entitlement, e.g. by
-    // matching entitlement.storeTransactionId against the purchase tokens
-    // queryPurchasesAsync currently returns.
+    // Return false ONLY when you have positively determined the signed-in
+    // store account does not own this entitlement. Anything else — a failed
+    // connection, a timeout, a pending purchase — must be null, or a brief
+    // store outage starts blocking legitimate upgrades.
+    // RevenueCatProvider implements this with Play's queryPurchasesAsync.
     override suspend fun ownedByCurrentStoreAccount(
         entitlement: Entitlement,
     ): Result<Boolean?> { /* ... */ }
@@ -607,12 +613,10 @@ Then register it instead of `RevenueCatProvider`. No other code changes.
   lives on your backend. The library reports what the store says and gives you
   the typed outcome to act on; linking, soft-deleting, and resolving
   `linkedPurchaseToken` are server-side work.
-- It does **not** detect a store-account switch on its own with
-  `RevenueCatProvider`. RevenueCat never exposes the underlying Play purchase
-  token, so `ownedByCurrentStoreAccount` stays at "can't tell" and Case 5 is
-  caught by Play failing the switch rather than pre-emptively. Implement that
-  hook in your own provider (or a `RevenueCatProvider` subclass) if you need
-  the button disabled up front.
+- It does **not** own the offline entitlement policy. Never revoking on a
+  failed refresh, never granting past a known expiry, and the length of the
+  offline window are the app's calls; `SubscriptionMessages.offline(...)` gives
+  you the banner, not the rule.
 
 ---
 

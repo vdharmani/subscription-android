@@ -36,6 +36,12 @@ kotlin {
 dependencies {
     api(project(":subscription-core"))
     api("com.revenuecat.purchases:purchases:10.5.0")
+
+    // Already on the classpath through RevenueCat, which pins 8.3.0 — declared
+    // explicitly because the store-account check compiles against it directly,
+    // and an undeclared transitive would break the day RevenueCat stops
+    // exposing it. Same version, so nothing is added to the resolved graph.
+    implementation("com.android.billingclient:billing:8.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 }
 
