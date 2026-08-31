@@ -323,6 +323,10 @@ class RevenueCatProvider(
             // Another store's entitlement is a cross-platform case, not an
             // account switch; Play has nothing useful to say about it.
             if (entitlement.store != Store.PLAY_STORE) return@runCatching null
+            // Without a product id there is nothing to match on, and a blank
+            // one would match nothing and read as "a different account owns
+            // this" — the one wrong answer this must never give.
+            if (entitlement.productId.isBlank()) return@runCatching null
 
             val owned = playStoreOwnership.ownedSubscriptions() ?: return@runCatching null
             val matching = owned.filter { it.matches(entitlement) }

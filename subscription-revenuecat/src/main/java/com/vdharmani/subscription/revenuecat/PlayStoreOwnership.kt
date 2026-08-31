@@ -48,12 +48,18 @@ internal class PlayStoreOwnership(context: Context) {
      *
      * The timeout matters: this runs before the purchase sheet opens, so a
      * wedged Play connection must not leave the user staring at a dead upgrade
-     * button. Giving up returns "could not tell", which lets the purchase
-     * proceed.
+     * button. It bounds the whole call — queueing behind another caller
+     * included — and giving up returns "could not tell", which lets the
+     * purchase proceed.
      */
-    suspend fun ownedSubscriptions(): List<Purchase>? = mutex.withLock {
-        withTimeoutOrNull(QUERY_TIMEOUT_MS) { queryOwnedSubscriptions() }
-    }
+    suspend fun ownedSubscriptions(): List<Purchase>? =
+        // The timeout wraps the lock, not the other way round. Bounding only
+        // the query would leave a queued caller waiting the full timeout for
+        // the lock and *then* starting its own, so N callers could stall for
+        // N x the timeout while the user waits on an upgrade button.
+        withTimeoutOrNull(QUERY_TIMEOUT_MS) {
+            mutex.withLock { queryOwnedSubscriptions() }
+        }
 
     private suspend fun queryOwnedSubscriptions(): List<Purchase>? {
         val client = BillingClient.newBuilder(appContext)
