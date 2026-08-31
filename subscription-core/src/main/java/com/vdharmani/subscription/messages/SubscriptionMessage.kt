@@ -3,13 +3,10 @@ package com.vdharmani.subscription.messages
 /**
  * A resolved, ready-to-show message.
  *
- * [title] is null for every message the library resolves. That is deliberate:
- * AppSpec defines **one string per case**, so inventing a title here would put
- * unspecified copy in front of users and break the "match word for word" rule.
- * Where your design needs a dialog heading, supply your own.
+ * There is no title. AppSpec defines **one string per case**, so a heading
+ * would be copy QA never signed off — supply your own where a dialog needs one.
  */
 data class SubscriptionMessage(
-    val title: String?,
     val body: String,
     /** Which container AppSpec says this message belongs in. */
     val display: Display,

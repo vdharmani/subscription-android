@@ -34,6 +34,9 @@ import java.util.Date
  * healthy subscription — never "unknown". Unrecognised failures fall back to
  * the generic message rather than going silent.
  *
+ * Messages carry no title: AppSpec specifies one string per case, so a dialog
+ * heading is the app's to supply.
+ *
  * Strings come from this module's `res/values/strings.xml` and are quoted word
  * for word from AppSpec; override by redeclaring a name in your app.
  */
@@ -253,7 +256,6 @@ object SubscriptionMessages {
                 msg(context, R.string.subscription_plan_change_web, Display.INLINE, "SMG-100B")
 
             else -> SubscriptionMessage(
-                title = null,
                 body = context.getString(
                     R.string.subscription_plan_change_provider,
                     storeLabel(context, store),
@@ -289,7 +291,6 @@ object SubscriptionMessages {
         display: Display,
         caseId: String,
     ) = SubscriptionMessage(
-        title = null,
         body = context.getString(bodyRes),
         display = display,
         caseId = caseId,
@@ -302,7 +303,6 @@ object SubscriptionMessages {
         caseId: String,
         dateSeconds: Long?,
     ) = SubscriptionMessage(
-        title = null,
         body = context.getString(bodyRes, formatDate(context, dateSeconds)),
         display = display,
         caseId = caseId,

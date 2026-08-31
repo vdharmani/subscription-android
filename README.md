@@ -380,9 +380,9 @@ val m = SubscriptionMessages.forError(context, error)
 m?.let { show(it) }   // it.body, it.display, it.caseId
 ```
 
-`SubscriptionMessage` is `title` + `body` + `display` + `caseId`. **`title` is
-always null** — AppSpec defines one string per case, so a dialog heading is
-yours to add rather than the library's to invent.
+`SubscriptionMessage` is `body` + `display` + `caseId`. **There is no title** —
+AppSpec defines one string per case, so a dialog heading is yours to add rather
+than the library's to invent.
 
 `display` is not cosmetic. AppSpec forbids specific pairings: a store conflict
 or destructive confirmation must never be a toast, and an ongoing state
@@ -419,10 +419,11 @@ val entitlement = customerInfo.entitlement("premium")
 if (customerInfo.hasAccess("premium")) {
     unlockPremium()
 }
-// Explain the suspended states — hold, paused and refunded are three
-// different situations and deliberately do not share a title.
+// Explain the non-obvious states. Hold, paused and refunded are three
+// different situations with deliberately different copy, and each carries the
+// container AppSpec puts it in.
 entitlement?.let { SubscriptionMessages.forEntitlement(context, it) }
-    ?.let { showBanner(it.title, it.body) }
+    ?.let { show(it.body, it.display) }
 ```
 
 | `SubscriptionStatus` | Access | Notes |
@@ -496,7 +497,7 @@ if (warning == null) {
     showPlainDeleteConfirmation()
 } else {
     AlertDialog.Builder(context)
-        .setTitle(warning.title)
+        .setTitle(R.string.delete_account_title)   // your heading
         .setMessage(warning.body)
         .setNegativeButton(R.string.keep_account) { _, _ ->
             sub.openManageSubscription(productId, customerInfo)
