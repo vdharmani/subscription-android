@@ -329,21 +329,20 @@ class RevenueCatProvider(
             if (entitlement.productId.isBlank()) return@runCatching null
 
             val owned = playStoreOwnership.ownedSubscriptions() ?: return@runCatching null
-            val matching = owned.filter { it.matches(entitlement) }
 
-            when {
-                matching.any { it.purchaseState == Purchase.PurchaseState.PURCHASED } -> true
-                // Owned but still pending: mid-purchase, so decide nothing.
-                matching.isNotEmpty() -> null
-                else -> false
-            }
+            StoreAccountMatch.ownership(
+                entitlementProductId = entitlement.productId,
+                entitlementTransactionId = entitlement.storeTransactionId,
+                purchases = owned.map { it.toStorePurchase() },
+            )
         }
 
-    private fun Purchase.matches(entitlement: Entitlement): Boolean {
-        if (entitlement.productId in products) return true
-        val transactionId = entitlement.storeTransactionId ?: return false
-        return transactionId == purchaseToken || transactionId == orderId
-    }
+    private fun Purchase.toStorePurchase() = StorePurchase(
+        products = products,
+        orderId = orderId,
+        purchaseToken = purchaseToken,
+        isPurchased = purchaseState == Purchase.PurchaseState.PURCHASED,
+    )
 
     // -- live updates -----------------------------------------------------
 

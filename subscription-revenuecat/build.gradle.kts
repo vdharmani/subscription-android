@@ -43,6 +43,9 @@ dependencies {
     // exposing it. Same version, so nothing is added to the resolved graph.
     implementation("com.android.billingclient:billing:8.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+
+    // Test-only: nothing here reaches consumers of the published AAR.
+    testImplementation("junit:junit:4.13.2")
 }
 
 afterEvaluate {
