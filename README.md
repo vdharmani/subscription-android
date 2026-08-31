@@ -42,6 +42,21 @@ touching call sites.
 
 ---
 
+## Requirements
+
+| | |
+|---|---|
+| `minSdk` | **23** — RevenueCat, Play Billing and `androidx.activity` all require it |
+| `compileSdk` | 36 |
+| Java / Kotlin | JVM target 17 |
+| Play Billing | 8.3.0, pulled in transitively by RevenueCat |
+
+`minSdk 23` is not a preference. Declaring 21 and depending on these libraries
+produces a manifest merger failure in the consuming app, which is why the
+library states the version its dependencies actually need.
+
+---
+
 ## Install
 
 **1.** Add JitPack in `settings.gradle.kts`:
@@ -60,14 +75,18 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("com.github.vdharmani.subscription-android:subscription-core:1.6.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-core:2.0.0")
     // Pull this in iff you want RevenueCat under the hood.
-    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:1.6.0")
+    implementation("com.github.vdharmani.subscription-android:subscription-revenuecat:2.0.0")
 }
 ```
 
 If you write your own `BillingProvider` (against Play Billing or another SDK),
 skip the second line.
+
+Upgrading from 1.x? See [`CHANGELOG.md`](CHANGELOG.md) — 2.0.0 changes the
+message API and fixes a defect where pending payments were reported to users
+as declines.
 
 ---
 
@@ -535,6 +554,53 @@ landing on the right span once the string is translated.
 
 ---
 
+## Error handling
+
+Every call returns a `Result`. Failures are typed `BillingException` subclasses,
+so you dispatch on the reason instead of matching on message text.
+
+**Two of these are not failures. Check them first:**
+
+| Type | What actually happened | What to do |
+|---|---|---|
+| `PurchaseCancelledException` | The user dismissed the store sheet | Nothing at all. No dialog. |
+| `PaymentPendingException` | A UPI mandate, slow card, or Ask to Buy approval is still in flight | Say it is processing. **Do not grant access and do not show an error** — the money may still land. The outcome arrives through `observeCustomerInfo()` or on the next launch. |
+
+Getting the second one wrong tells a user whose payment is merely pending that
+their card was declined. On UPI that is a common flow, not an edge case.
+
+| Type | Meaning |
+|---|---|
+| `SubscriptionAlreadyLinkedException` | The store account's subscription belongs to a **different app account** (Case 1). Extends `AlreadyOwnedException`, so **match it first** |
+| `AlreadyOwnedException` | The app account already has this — never offer a second purchase, that double-bills |
+| `PlanChangeUnavailableException` | Blocked before the sheet opened; carries `reason` and `store` (Cases 5 and 7) |
+| `PaymentDeclinedException` | The store refused the payment method |
+| `ReceiptValidationException` | Paid, but the receipt could not be verified — never drop it, point the user at Restore |
+| `TrialNotEligibleException` | This **store** account already used its trial — still offer the paid plan |
+| `OfferUnavailableException` | The store refused a displayed offer — never fall through to a silent full-price charge |
+| `BillingNetworkException` | Store unreachable |
+| `SecureConnectionException` | TLS or signature verification failed on a billing endpoint |
+| `StoreProblemException` | Store-side fault; retrying may help |
+| `ProductUnavailableException` | Product not configured or not purchasable |
+| `PlayStoreInstallRequiredException` | Only when `requirePlayStoreInstaller` is on |
+| `UnknownBillingException` | Anything unmapped |
+
+```kotlin
+result.onFailure { e ->
+    when (e) {
+        is PurchaseCancelledException -> Unit               // normal action
+        is PaymentPendingException -> showProcessing()      // not a failure
+        else -> SubscriptionMessages.forError(context, e)?.let { show(it) }
+    }
+}
+```
+
+`SubscriptionMessages.forError` already encodes all of this — it returns `null`
+only for a cancelled sheet, and resolves everything else, including the pending
+case, to its AppSpec string.
+
+---
+
 ## Configuration
 
 `SubscriptionClient.Config`:
@@ -617,6 +683,31 @@ Then register it instead of `RevenueCatProvider`. No other code changes.
   failed refresh, never granting past a known expiry, and the length of the
   offline window are the app's calls; `SubscriptionMessages.offline(...)` gives
   you the banner, not the rule.
+
+---
+
+## Testing
+
+```bash
+./gradlew build                    # compile, lint and all JVM unit tests
+./gradlew connectedDebugAndroidTest   # instrumented tests, needs a device
+```
+
+**JVM (44 tests)** cover the lifecycle state table, the plan-change guard, the
+restore decisions, the store-account matching rules, and `AppSpecConformanceTest`,
+which fails the build if any shipped string stops matching AppSpec word for word.
+`src/main/res` is declared as a test input, or that check would sit UP-TO-DATE
+and silently not run when a string is edited.
+
+**Instrumented (14 tests)** cover what a JVM test cannot: the message layer
+resolved through real Android resources — including that date and price
+arguments actually substitute rather than leaving `%1$s` on screen — and the
+real Play `BillingClient` connecting, querying and disconnecting.
+
+The store-account check has been exercised against a real device and a real
+Google account returning **no** purchases. The case where the account genuinely
+**owns** a subscription for the package needs a published build and a real
+purchase, and is not yet covered.
 
 ---
 
