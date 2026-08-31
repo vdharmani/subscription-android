@@ -3,22 +3,23 @@ package com.vdharmani.subscription.internal
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.Build
+import com.vdharmani.subscription.PlayStoreInstallRequiredException
 
 /**
- * Returns an [IllegalStateException] when the app should be blocked from
- * making purchases — debuggable build, or installer is anything other than
- * the Play Store (`com.android.vending`). Returns `null` when the install
+ * Returns a [PlayStoreInstallRequiredException] when the app should be blocked
+ * from making purchases — debuggable build, or installer is anything other
+ * than the Play Store (`com.android.vending`). Returns `null` when the install
  * is OK.
  *
  * Shared by [com.vdharmani.subscription.SubscriptionClient] and
  * [com.vdharmani.subscription.compose.ComposeSubscription] so the rule is
  * defined once.
  */
-internal fun playStoreInstallerCheck(context: Context): IllegalStateException? {
+internal fun playStoreInstallerCheck(context: Context): PlayStoreInstallRequiredException? {
     val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val installer = readInstallerPackageName(context)
     return if (debuggable || installer != PLAY_STORE_PACKAGE) {
-        IllegalStateException("This app must be installed from the Play Store to make purchases.")
+        PlayStoreInstallRequiredException()
     } else {
         null
     }

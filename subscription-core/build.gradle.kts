@@ -50,6 +50,10 @@ dependencies {
     // Compose runtime is part of the public API (consumers see @Composable in our signatures).
     api("androidx.compose.runtime:runtime:1.11.1")
     implementation("androidx.compose.ui:ui:1.11.1")
+
+    // Test-only: nothing here reaches consumers of the published AAR.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
 afterEvaluate {
@@ -59,7 +63,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.vdharmani.subscription-android"
                 artifactId = "subscription-core"
-                version = "1.6.0"
+                version = "1.7.0"
             }
         }
     }

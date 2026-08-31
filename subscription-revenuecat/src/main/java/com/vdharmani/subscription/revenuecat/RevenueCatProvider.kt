@@ -6,12 +6,16 @@ import android.util.Log
 import com.revenuecat.purchases.CustomerInfo as RcCustomerInfo
 import com.revenuecat.purchases.EntitlementInfo
 import com.revenuecat.purchases.LogLevel
+import com.revenuecat.purchases.OwnershipType as RcOwnershipType
+import com.revenuecat.purchases.PeriodType as RcPeriodType
 import com.revenuecat.purchases.ProductType as RcProductType
 import com.revenuecat.purchases.PurchaseParams
 import com.revenuecat.purchases.Purchases
 import com.revenuecat.purchases.PurchasesConfiguration
 import com.revenuecat.purchases.PurchasesErrorCode
 import com.revenuecat.purchases.PurchasesException
+import com.revenuecat.purchases.Store as RcStore
+import com.revenuecat.purchases.SubscriptionInfo
 import com.revenuecat.purchases.awaitCustomerInfo
 import com.revenuecat.purchases.awaitGetProducts
 import com.revenuecat.purchases.awaitLogIn
@@ -32,15 +36,19 @@ import com.vdharmani.subscription.PaymentDeclinedException
 import com.vdharmani.subscription.ProductUnavailableException
 import com.vdharmani.subscription.PurchaseCancelledException
 import com.vdharmani.subscription.StoreProblemException
+import com.vdharmani.subscription.SubscriptionAlreadyLinkedException
 import com.vdharmani.subscription.UnknownBillingException
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
+import com.vdharmani.subscription.model.OwnershipType
 import com.vdharmani.subscription.model.Period
+import com.vdharmani.subscription.model.PeriodType
 import com.vdharmani.subscription.model.Price
 import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
+import com.vdharmani.subscription.model.Store
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +59,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import java.util.Date
 
 /**
  * [BillingProvider] implementation backed by [RevenueCat](https://www.revenuecat.com/).
@@ -348,29 +357,105 @@ class RevenueCatProvider(
         currency = price.currencyCode,
     )
 
-    private fun RcCustomerInfo.toCustomerInfo(): CustomerInfo = CustomerInfo(
-        appUserId = originalAppUserId,
-        activeEntitlements = entitlements.active.values.map { it.toEntitlement() },
-        nonConsumableProductIds = nonSubscriptionTransactions
-            .map { it.productIdentifier }
-            .toSet(),
-    )
+    /**
+     * The lifecycle signals Case 6 turns on — refund, grace-period expiry,
+     * auto-resume after a pause — live on [SubscriptionInfo], not on
+     * `EntitlementInfo`, so every entitlement is joined against the
+     * subscription that granted it.
+     *
+     * `entitlements.all` rather than `.active` because an entitlement in
+     * account hold, paused, or refunded is *not* active — reading only the
+     * active map makes a failed payment indistinguishable from a user who
+     * never subscribed, and the app offers "Subscribe" when it should be
+     * offering "Fix your payment method".
+     */
+    private fun RcCustomerInfo.toCustomerInfo(): CustomerInfo {
+        val subscriptions = subscriptionsByProductIdentifier
+        return CustomerInfo(
+            appUserId = originalAppUserId,
+            activeEntitlements = entitlements.active.values.map { it.toEntitlement(subscriptions) },
+            nonConsumableProductIds = nonSubscriptionTransactions
+                .map { it.productIdentifier }
+                .toSet(),
+            allEntitlements = entitlements.all.values.map { it.toEntitlement(subscriptions) },
+            managementUrl = managementURL?.toString(),
+        )
+    }
 
-    private fun EntitlementInfo.toEntitlement(): Entitlement = Entitlement(
-        identifier = identifier,
-        productId = productIdentifier,
-        // RC 10+ guarantees latestPurchaseDate is non-null; the Entitlement
-        // field stays nullable so custom providers without this guarantee can
-        // still surface "unknown".
-        purchasedAtSeconds = latestPurchaseDate.time / 1000L,
-        expiresAtSeconds = expirationDate?.let { it.time / 1000L },
-        willRenew = willRenew,
-        isInGracePeriod = billingIssueDetectedAt != null,
-        // Google-only, so null on other stores. Without it every base plan of
-        // one subscription reports the same productId and the caller cannot
-        // tell which plan the user is actually on.
-        basePlanId = productPlanIdentifier,
-    )
+    private fun EntitlementInfo.toEntitlement(
+        subscriptions: Map<String, SubscriptionInfo>,
+    ): Entitlement {
+        // RevenueCat keys subscriptions the way the store names them, which for
+        // Google is "subscriptionId:basePlanId". Fall back to the bare id for
+        // stores that have no base-plan concept.
+        val subscription = productPlanIdentifier
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { subscriptions["$productIdentifier:$it"] }
+            ?: subscriptions[productIdentifier]
+
+        return Entitlement(
+            identifier = identifier,
+            productId = productIdentifier,
+            // RC 10+ guarantees latestPurchaseDate is non-null; the Entitlement
+            // field stays nullable so custom providers without this guarantee can
+            // still surface "unknown".
+            purchasedAtSeconds = latestPurchaseDate.seconds(),
+            expiresAtSeconds = expirationDate?.seconds(),
+            willRenew = willRenew,
+            // A billing issue stays flagged through both the grace period and
+            // the account hold that follows it, so the flag alone cannot tell
+            // them apart. Still being active is what makes it a grace period;
+            // once the entitlement lapses the same flag means hold.
+            isInGracePeriod = isActive && billingIssueDetectedAt != null,
+            // Google-only, so null on other stores. Without it every base plan of
+            // one subscription reports the same productId and the caller cannot
+            // tell which plan the user is actually on.
+            basePlanId = productPlanIdentifier,
+            isActive = isActive,
+            store = store.toStore(),
+            periodType = periodType.toPeriodType(),
+            unsubscribeDetectedAtSeconds = unsubscribeDetectedAt?.seconds(),
+            billingIssueDetectedAtSeconds = billingIssueDetectedAt?.seconds(),
+            gracePeriodExpiresAtSeconds = subscription?.gracePeriodExpiresDate?.seconds(),
+            refundedAtSeconds = subscription?.refundedAt?.seconds(),
+            // Only ever set while a Play subscription is actually paused, which
+            // is what makes it a reliable pause signal.
+            autoResumeAtSeconds = subscription?.autoResumeDate?.seconds(),
+            storeTransactionId = subscription?.storeTransactionId,
+            ownershipType = ownershipType.toOwnershipType(),
+            isSandbox = isSandbox,
+        )
+    }
+
+    private fun Date.seconds(): Long = time / 1000L
+
+    private fun RcStore.toStore(): Store = when (this) {
+        RcStore.PLAY_STORE -> Store.PLAY_STORE
+        RcStore.AMAZON -> Store.AMAZON
+        RcStore.GALAXY -> Store.GALAXY
+        RcStore.APP_STORE -> Store.APP_STORE
+        RcStore.MAC_APP_STORE -> Store.MAC_APP_STORE
+        RcStore.STRIPE -> Store.STRIPE
+        RcStore.PADDLE -> Store.PADDLE
+        RcStore.RC_BILLING -> Store.RC_BILLING
+        RcStore.EXTERNAL -> Store.EXTERNAL
+        RcStore.PROMOTIONAL -> Store.PROMOTIONAL
+        RcStore.TEST_STORE -> Store.TEST_STORE
+        RcStore.UNKNOWN_STORE -> Store.UNKNOWN
+    }
+
+    private fun RcPeriodType.toPeriodType(): PeriodType = when (this) {
+        RcPeriodType.NORMAL -> PeriodType.NORMAL
+        RcPeriodType.TRIAL -> PeriodType.TRIAL
+        RcPeriodType.INTRO -> PeriodType.INTRO
+        RcPeriodType.PREPAID -> PeriodType.PREPAID
+    }
+
+    private fun RcOwnershipType.toOwnershipType(): OwnershipType = when (this) {
+        RcOwnershipType.PURCHASED -> OwnershipType.PURCHASED
+        RcOwnershipType.FAMILY_SHARED -> OwnershipType.FAMILY_SHARED
+        RcOwnershipType.UNKNOWN -> OwnershipType.UNKNOWN
+    }
 
     private fun PurchasesException.toBillingException(): Throwable = when (code) {
         PurchasesErrorCode.PurchaseCancelledError ->
@@ -387,8 +472,14 @@ class RevenueCatProvider(
         PurchasesErrorCode.ProductNotAvailableForPurchaseError ->
             ProductUnavailableException(error.message, this)
 
-        PurchasesErrorCode.ProductAlreadyPurchasedError,
+        // The store account's subscription is already attached to a different
+        // app account. Distinct from "you already own this": the user has to
+        // sign back into the other account, or switch Google accounts to buy a
+        // separate subscription.
         PurchasesErrorCode.ReceiptAlreadyInUseError ->
+            SubscriptionAlreadyLinkedException(error.message, this)
+
+        PurchasesErrorCode.ProductAlreadyPurchasedError ->
             AlreadyOwnedException(error.message, this)
 
         PurchasesErrorCode.StoreProblemError,

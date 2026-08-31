@@ -2,10 +2,12 @@ package com.vdharmani.subscription.compose
 
 import androidx.compose.runtime.State
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.PlanChangeEligibility
 import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
+import com.vdharmani.subscription.model.RestoreOutcome
 import com.vdharmani.subscription.model.SubscriberAttributes
 
 /**
@@ -27,6 +29,10 @@ class SubscriptionComposeManager internal constructor(
         productType: ProductType,
     ) -> Result<List<Product>>,
     private val onRestore: suspend () -> Result<CustomerInfo>,
+    private val onRestorePurchases: suspend () -> RestoreOutcome,
+    private val onPlanChangeEligibility: suspend (oldProductId: String) -> PlanChangeEligibility,
+    private val onPlanChangeEligibilityFor: suspend (entitlementId: String) -> PlanChangeEligibility,
+    private val onOpenManageSubscription: (productId: String?, customerInfo: CustomerInfo?) -> Boolean,
     private val onCustomerInfo: suspend () -> Result<CustomerInfo>,
     private val onIdentify: suspend (appUserId: String) -> Result<CustomerInfo>,
     private val onSetAttributes: suspend (attributes: SubscriberAttributes) -> Result<Unit>,
@@ -54,6 +60,33 @@ class SubscriptionComposeManager internal constructor(
     ): Result<List<Product>> = onProducts(productIds, productType)
 
     suspend fun restore(): Result<CustomerInfo> = onRestore()
+
+    /**
+     * Restore, classified — tells "nothing on this store account" apart from
+     * "already linked to a different app account". See
+     * `SubscriptionClient.restorePurchases`.
+     */
+    suspend fun restorePurchases(): RestoreOutcome = onRestorePurchases()
+
+    /**
+     * Whether the subscription behind [oldProductId] can be switched from this
+     * device and store account. See `SubscriptionClient.planChangeEligibility`.
+     */
+    suspend fun planChangeEligibility(oldProductId: String): PlanChangeEligibility =
+        onPlanChangeEligibility(oldProductId)
+
+    /** Same decision, addressed by entitlement identifier. */
+    suspend fun planChangeEligibilityFor(entitlementId: String): PlanChangeEligibility =
+        onPlanChangeEligibilityFor(entitlementId)
+
+    /**
+     * Open the store screen where the user can cancel, resume, or fix payment.
+     * Returns `false` when no app could handle it.
+     */
+    fun openManageSubscription(
+        productId: String? = null,
+        customerInfo: CustomerInfo? = null,
+    ): Boolean = onOpenManageSubscription(productId, customerInfo)
     suspend fun customerInfo(): Result<CustomerInfo> = onCustomerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = onIdentify(appUserId)
 

@@ -5,12 +5,17 @@ import androidx.activity.ComponentActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.vdharmani.subscription.internal.entitlementForProduct
+import com.vdharmani.subscription.internal.planChangeEligibility
 import com.vdharmani.subscription.internal.playStoreInstallerCheck
+import com.vdharmani.subscription.internal.toRestoreOutcome
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.PlanChangeEligibility
 import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
+import com.vdharmani.subscription.model.RestoreOutcome
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -66,6 +71,20 @@ class SubscriptionClient private constructor(
          * opt-in.
          */
         val requirePlayStoreInstaller: Boolean = false,
+
+        /**
+         * When `true` (the default), [changeSubscription] checks that the plan
+         * can actually be switched from this device and this store account
+         * before opening the purchase sheet, failing with
+         * [PlanChangeUnavailableException] instead.
+         *
+         * Letting an impossible switch through is worse than it looks: Google
+         * Play rejects it with a developer error, and the App Store silently
+         * turns it into a second, full-price subscription billing a second
+         * store account. The check costs one customer-info lookup and fails
+         * open if that lookup fails.
+         */
+        val guardPlanChanges: Boolean = true,
     )
 
     // -- suspend API ------------------------------------------------------
@@ -95,8 +114,35 @@ class SubscriptionClient private constructor(
         if (config.requirePlayStoreInstaller) {
             playStoreInstallerCheck(activity)?.let { return Result.failure(it) }
         }
+        if (config.guardPlanChanges) {
+            val eligibility = planChangeEligibility(oldProductId)
+            if (eligibility is PlanChangeEligibility.Blocked) {
+                return Result.failure(
+                    PlanChangeUnavailableException(eligibility.reason, eligibility.store),
+                )
+            }
+        }
         return provider.changeSubscription(activity, productId, oldProductId, replacementMode)
     }
+
+    /**
+     * Whether the subscription behind [oldProductId] can be switched from this
+     * device, on the store account signed in right now.
+     *
+     * Call it when building the Manage Subscription screen: an [PlanChangeEligibility.Blocked]
+     * result is what turns the upgrade button into an explanatory line, which
+     * `SubscriptionMessages.planChangeBlocked` renders. Access is unaffected
+     * either way — a blocked switch still means a perfectly valid subscription.
+     */
+    suspend fun planChangeEligibility(oldProductId: String): PlanChangeEligibility =
+        provider.planChangeEligibility { it.entitlementForProduct(oldProductId) }
+
+    /**
+     * Same decision as [planChangeEligibility], addressed by entitlement
+     * identifier (e.g. `"premium"`) rather than by product id.
+     */
+    suspend fun planChangeEligibilityFor(entitlementId: String): PlanChangeEligibility =
+        provider.planChangeEligibility { it.entitlement(entitlementId) }
 
     /**
      * Store-localised products for the paywall. See [BillingProvider.products].
@@ -107,6 +153,38 @@ class SubscriptionClient private constructor(
     ): Result<List<Product>> = provider.products(productIds, productType)
 
     suspend fun restore(): Result<CustomerInfo> = provider.restore()
+
+    /**
+     * Restore, classified: distinguishes "the store had nothing" from "this
+     * subscription is already linked to a different app account", which
+     * [restore] collapses into an anonymous failure.
+     *
+     * This is the call to make behind the "Restore Purchases" button, and on
+     * launch, login, and **app foreground** — the store account can change
+     * while the app is backgrounded, and a silent restore on resume is what
+     * keeps a stale upgrade button off the screen.
+     *
+     * Pass the result to `SubscriptionMessages.forRestore` for the copy.
+     */
+    suspend fun restorePurchases(): RestoreOutcome = provider.restore().toRestoreOutcome()
+
+    /**
+     * Open the store screen where the user can cancel, resume, or fix payment
+     * on their subscription. Returns `false` when no app could handle it.
+     *
+     * Every message that ends "…in the Play Store" needs this route: the app
+     * cannot cancel, resume, or re-plan a store subscription on the user's
+     * behalf. Passing [customerInfo] lets it target the store that is actually
+     * billing, which for a user who subscribed on iOS is not Google Play.
+     */
+    fun openManageSubscription(
+        productId: String? = null,
+        customerInfo: CustomerInfo? = null,
+    ): Boolean = ManageSubscription.open(
+        context = activity,
+        managementUrl = customerInfo?.managementUrl,
+        productId = productId,
+    )
     suspend fun customerInfo(): Result<CustomerInfo> = provider.customerInfo()
     suspend fun identify(appUserId: String): Result<CustomerInfo> = provider.identify(appUserId)
     suspend fun logout(): Result<CustomerInfo> = provider.logout()
@@ -153,6 +231,14 @@ class SubscriptionClient private constructor(
 
     fun restore(onResult: (Result<CustomerInfo>) -> Unit) {
         lifecycleOwner.lifecycleScope.launch { onResult(restore()) }
+    }
+
+    fun restorePurchases(onResult: (RestoreOutcome) -> Unit) {
+        lifecycleOwner.lifecycleScope.launch { onResult(restorePurchases()) }
+    }
+
+    fun planChangeEligibility(oldProductId: String, onResult: (PlanChangeEligibility) -> Unit) {
+        lifecycleOwner.lifecycleScope.launch { onResult(planChangeEligibility(oldProductId)) }
     }
 
     fun customerInfo(onResult: (Result<CustomerInfo>) -> Unit) {

@@ -31,6 +31,11 @@ touching call sites.
   identity switch.
 - 🧱 **Swappable provider.** Core ships a `BillingProvider` SPI. Use
   `RevenueCatProvider` from the opt-in module or implement your own.
+- 🚦 **Subscription-case handling.** Account conflicts, lifecycle states
+  (grace / hold / paused / refunded), cross-platform and cross-store-account
+  plan changes are detected and blocked *before* the purchase sheet opens —
+  each with default, overridable user-facing copy. See
+  [Subscription cases](#subscription-cases).
 - 🪶 **Three hosts.** Activity, Fragment, and Compose — all use the same
   underlying state machine.
 
@@ -343,6 +348,166 @@ which fails with `SubscriptionChangeUnsupportedException`.
 
 ---
 
+## Subscription cases
+
+A store subscription is owned by the **Google Play account**, not by your app
+account. Almost every awkward case falls out of that one fact, and the library
+handles them as follows.
+
+| # | Case | What the library does |
+|---|---|---|
+| 1 | Store sub linked to another **live** app account | `SubscriptionAlreadyLinkedException` → conflict dialog copy |
+| 1A | Different store account on same device | Nothing — a separate, legitimate subscription |
+| 2 | Store sub linked to no app account | Restores and links normally (`RestoreOutcome.Restored`) |
+| 3 | Account deletion with an active subscription | `accountDeletion(...)` warning copy + `openManageSubscription()`; never blocks |
+| 4 | Store sub active, linked app account deleted | Same as case 2 — your backend soft-deletes the linkage row |
+| 5 | Plan change after store-account switch | `PlanChangeEligibility.Blocked(STORE_ACCOUNT_MISMATCH)` |
+| 6 | Grace / hold / paused / refunded | `Entitlement.status` + `grantsAccess`, with per-state copy |
+| 7 | Cross-platform entitlement | `PlanChangeEligibility.Blocked(CROSS_PLATFORM)` — access still granted |
+| 8 | Normal plan change, same store account | `changeSubscription(...)` + `ReplacementMode.forPlanSwitch(...)` |
+| 9 | Resubscribe after expiry | Plain `purchase(...)`; check `hasAccess()` first so you never double-bill |
+
+### Messages
+
+All user-facing copy lives in `res/values/strings.xml` in `subscription-core`
+and is resolved through `SubscriptionMessages`. **To change the wording,
+redeclare the same string name in your app** — Android's resource merger
+prefers yours. Translate by adding your own `values-<locale>`.
+
+```kotlin
+val message = SubscriptionMessages.forError(context, error)
+// null == user cancelled the sheet. Say nothing; it is not an error.
+message?.let { showDialog(it.title, it.body) }
+```
+
+### Lifecycle states (case 6)
+
+Gate access on **state**, never on "an entitlement exists":
+
+```kotlin
+val entitlement = customerInfo.entitlement("premium")
+if (customerInfo.hasAccess("premium")) {
+    unlockPremium()
+}
+// Explain the suspended states — hold, paused and refunded are three
+// different situations and deliberately do not share a title.
+entitlement?.let { SubscriptionMessages.forEntitlement(context, it) }
+    ?.let { showBanner(it.title, it.body) }
+```
+
+| `SubscriptionStatus` | Access | Notes |
+|---|---|---|
+| `ACTIVE` | ✅ | |
+| `CANCELLED` | ✅ | Auto-renew off, period not over. **Not** expired |
+| `IN_GRACE_PERIOD` | ✅ | Payment retrying; renewal date does not move on recovery |
+| `ON_HOLD` | ❌ | Recoverable; Play's hold runs up to 60 days minus the grace period |
+| `PAUSED` | ❌ | Android only; resumes automatically on `autoResumeAtSeconds` |
+| `EXPIRED` | ❌ | |
+| `REFUNDED` | ❌ | Final — pull access at once, do not run out the period |
+
+Suspended entitlements are **not** in `activeEntitlements`; read
+`allEntitlements`, or `entitlement(id)` / `statusOf(id)`, or a failed payment
+looks identical to a user who never subscribed.
+
+> Play applies a minimum **one-day silent grace period** even when you
+> configure zero, during which a failed payment still reports as active. Don't
+> build logic that assumes a failure surfaces immediately.
+
+### Plan changes (cases 5, 7, 8)
+
+Check before you offer the button:
+
+```kotlin
+when (val eligibility = sub.planChangeEligibility(currentProductId)) {
+    is PlanChangeEligibility.Allowed ->
+        showUpgradeButton()
+    is PlanChangeEligibility.Blocked ->
+        showNote(SubscriptionMessages.planChangeBlocked(context, eligibility))
+}
+```
+
+`changeSubscription` runs the same check itself unless you set
+`Config(guardPlanChanges = false)`. It is worth the round trip: on Play a
+switch against a token the current account doesn't own fails with a developer
+error, and on the App Store it fails *silently* — StoreKit only applies an
+upgrade when the same Apple ID owns the old subscription, so otherwise the
+user quietly ends up paying two live subscriptions. Access is never revoked by
+a block; only the switch is refused.
+
+### Restore (cases 1, 2, 4)
+
+`restorePurchases()` classifies the result instead of collapsing the conflict
+into a generic failure:
+
+```kotlin
+when (val outcome = sub.restorePurchases()) {
+    is RestoreOutcome.Restored -> grantAccess(outcome.customerInfo)
+    is RestoreOutcome.NothingToRestore,
+    is RestoreOutcome.LinkedToAnotherAccount,
+    is RestoreOutcome.Failed ->
+        SubscriptionMessages.forRestore(context, outcome)?.let { showDialog(it) }
+}
+```
+
+Run it on launch, on login, **and on app foreground** — the store account can
+change while your app is backgrounded, which is exactly what leaves a stale
+upgrade button on screen.
+
+### Account deletion (case 3)
+
+Warn, then let them through. Blocking deletion behind an active subscription
+is a realistic App Store rejection, and the subscription is not yours to
+cancel:
+
+```kotlin
+val warning = SubscriptionMessages.accountDeletion(context, customerInfo)
+if (warning != null) {
+    // Only fires while something is still set to auto-renew.
+    AlertDialog.Builder(context)
+        .setTitle(warning.title)
+        .setMessage(warning.body)
+        // "Keep Account", not "Cancel" — the body already uses "cancel" to
+        // mean cancelling the subscription.
+        .setNegativeButton(SubscriptionMessages.keepAccountLabel(context)) { _, _ ->
+            sub.openManageSubscription(productId, customerInfo)
+        }
+        .setPositiveButton(SubscriptionMessages.deleteAnywayLabel(context)) { _, _ ->
+            deleteAccount()
+        }
+        .show()
+} else {
+    showPlainDeleteConfirmation()
+}
+```
+
+### Paywall disclosure
+
+Both stores want the auto-renewal terms before the user confirms, with working
+Terms / Privacy links:
+
+```kotlin
+// Compose
+Text(
+    text = rememberDisclosureText(
+        linkColor = MaterialTheme.colorScheme.primary,
+        onTermsClick = { openUrl(TERMS_URL) },
+        onPrivacyClick = { openUrl(PRIVACY_URL) },
+    ),
+    style = MaterialTheme.typography.bodySmall,
+)
+
+// Views — remember movementMethod, or the spans render but never fire.
+binding.disclosure.text = SubscriptionDisclosure.spanned(
+    context, linkColor, ::openTerms, ::openPrivacy,
+)
+binding.disclosure.movementMethod = LinkMovementMethod.getInstance()
+```
+
+The links are built from separate label resources rather than by searching the
+sentence for English, so they keep working in translation.
+
+---
+
 ## Configuration
 
 `SubscriptionClient.Config`:
@@ -350,6 +515,7 @@ which fails with `SubscriptionChangeUnsupportedException`.
 | Field | Default | Purpose |
 |---|---|---|
 | `requirePlayStoreInstaller` | `false` | When `true`, [purchase] is blocked on debuggable builds and on builds whose installer is anything other than the Play Store (`com.android.vending`). Match the safety check from the reference impl. Opt-in. |
+| `guardPlanChanges` | `true` | Check that a plan switch is actually possible (right store, right store account, subscription live) before opening the purchase sheet; fails with `PlanChangeUnavailableException` instead. Costs one customer-info lookup and fails **open** if that lookup fails. |
 
 ---
 
@@ -378,8 +544,27 @@ class MyPlayBillingProvider(context: Context) : BillingProvider {
     // Optional — defaults to a no-op success. Override only if your SDK
     // supports subscriber metadata.
     override suspend fun setAttributes(attributes: SubscriberAttributes): Result<Unit> { /* ... */ }
+
+    // Optional — defaults to Store.PLAY_STORE. The store you actually talk to,
+    // used to tell "we can change this plan" from "this plan is billed
+    // elsewhere and is read-only here".
+    override val nativeStore: Store get() = Store.PLAY_STORE
+
+    // Optional — defaults to Result.success(null), meaning "can't tell".
+    // Return false only when you have positively determined the signed-in
+    // store account does not own the purchase behind this entitlement, e.g. by
+    // matching entitlement.storeTransactionId against the purchase tokens
+    // queryPurchasesAsync currently returns.
+    override suspend fun ownedByCurrentStoreAccount(
+        entitlement: Entitlement,
+    ): Result<Boolean?> { /* ... */ }
 }
 ```
+
+Map your SDK's errors onto the typed `BillingException` subclasses — in
+particular, "this receipt already belongs to another subscriber" must become
+`SubscriptionAlreadyLinkedException`, not a generic `AlreadyOwnedException`, or
+the account-conflict copy never fires.
 
 Then register it instead of `RevenueCatProvider`. No other code changes.
 
@@ -395,6 +580,16 @@ Then register it instead of `RevenueCatProvider`. No other code changes.
   receipt.
 - It does **not** ship a paywall UI. Build your own from `customerInfo` +
   `purchase()` — exactly the shape your app needs.
+- It does **not** own the app-account ↔ store-account linkage. That record
+  lives on your backend. The library reports what the store says and gives you
+  the typed outcome to act on; linking, soft-deleting, and resolving
+  `linkedPurchaseToken` are server-side work.
+- It does **not** detect a store-account switch on its own with
+  `RevenueCatProvider`. RevenueCat never exposes the underlying Play purchase
+  token, so `ownedByCurrentStoreAccount` stays at "can't tell" and Case 5 is
+  caught by Play failing the switch rather than pre-emptively. Implement that
+  hook in your own provider (or a `RevenueCatProvider` subclass) if you need
+  the button disabled up front.
 
 ---
 

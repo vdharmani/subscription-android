@@ -7,9 +7,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vdharmani.subscription.BillingProvider
+import com.vdharmani.subscription.ManageSubscription
+import com.vdharmani.subscription.PlanChangeUnavailableException
 import com.vdharmani.subscription.SubscriptionClient
 import com.vdharmani.subscription.SubscriptionManager
+import com.vdharmani.subscription.internal.entitlementForProduct
+import com.vdharmani.subscription.internal.planChangeEligibility
 import com.vdharmani.subscription.internal.playStoreInstallerCheck
+import com.vdharmani.subscription.internal.toRestoreOutcome
+import com.vdharmani.subscription.model.PlanChangeEligibility
 import com.vdharmani.subscription.model.ProductType
 
 /**
@@ -76,10 +82,29 @@ fun ComposeSubscription(
                         return@SubscriptionComposeManager Result.failure(it)
                     }
                 }
+                if (config.guardPlanChanges) {
+                    val eligibility =
+                        provider.planChangeEligibility { it.entitlementForProduct(oldProductId) }
+                    if (eligibility is PlanChangeEligibility.Blocked) {
+                        return@SubscriptionComposeManager Result.failure(
+                            PlanChangeUnavailableException(eligibility.reason, eligibility.store),
+                        )
+                    }
+                }
                 provider.changeSubscription(activity, productId, oldProductId, replacementMode)
             },
             onProducts = { productIds, productType -> provider.products(productIds, productType) },
             onRestore = { provider.restore() },
+            onRestorePurchases = { provider.restore().toRestoreOutcome() },
+            onPlanChangeEligibility = { oldProductId ->
+                provider.planChangeEligibility { it.entitlementForProduct(oldProductId) }
+            },
+            onPlanChangeEligibilityFor = { entitlementId ->
+                provider.planChangeEligibility { it.entitlement(entitlementId) }
+            },
+            onOpenManageSubscription = { productId, customerInfo ->
+                ManageSubscription.open(context, customerInfo?.managementUrl, productId)
+            },
             onCustomerInfo = { provider.customerInfo() },
             onIdentify = { provider.identify(it) },
             onSetAttributes = { provider.setAttributes(it) },

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default copy for every subscription case the library can detect.
+
+  Every string here is overridable: redeclare the same name in your app's
+  res/values/strings.xml and Android's resource merger prefers yours. That is
+  the intended way to adjust tone or brand wording — translate by adding
+  values-<locale> in your app, not by forking this file.
+-->
+<resources>
+
+    <!-- Paywall disclosure. %1$s is the Terms of Use link, %2$s the Privacy Policy link. -->
+    <string name="subscription_disclosure">Subscription auto-renews unless cancelled at least 24 hours before the current period ends. Manage or cancel anytime in Google Play &gt; Subscriptions. By subscribing you agree to our %1$s and %2$s.</string>
+    <string name="subscription_terms_label">Terms of Use</string>
+    <string name="subscription_privacy_label">Privacy Policy</string>
+
+    <!-- Case 1: store subscription already linked to another live app account. -->
+    <string name="subscription_conflict_title">This subscription belongs to another account</string>
+    <string name="subscription_conflict_message">An active subscription on this Google Play account is already linked to a different account in the app. Sign in to that account to use it.\n\nIf you\'d rather keep them separate, switch to a different Google account in the Play Store app, then come back to the app and subscribe again.</string>
+
+    <!-- Case 3: deleting the app account while a subscription is still renewing. -->
+    <string name="subscription_delete_account_title">Deleting won\'t cancel your subscription</string>
+    <string name="subscription_delete_account_message">Your subscription was purchased through Google Play and will keep billing after your account is deleted. Cancel it in the Play Store to stop future charges.\n\nDeleting your account is permanent and cannot be undone.</string>
+    <string name="subscription_delete_account_keep">Keep Account</string>
+    <string name="subscription_delete_account_confirm">Delete Anyway</string>
+
+    <!-- Case 5: plan change attempted after the user switched Google accounts. -->
+    <string name="subscription_plan_change_account_mismatch">Purchased with a different Google account. Sign in to that account in the Play Store app to upgrade or change your plan.</string>
+
+    <!-- Case 7: entitlement billed by another platform's store. -->
+    <string name="subscription_plan_change_apple">Purchased on iPhone through the App Store. To change or cancel your plan, open the app on an iOS device.</string>
+    <string name="subscription_plan_change_other_store">Purchased outside Google Play. To change or cancel your plan, use the store you subscribed through.</string>
+    <string name="subscription_plan_change_not_active">Your subscription isn\'t active right now, so it can\'t be changed. Restore access first, or subscribe again.</string>
+    <string name="subscription_plan_change_none">You don\'t have a subscription to change yet.</string>
+
+    <!-- Case 6: lifecycle states that are not plain active or expired. -->
+    <string name="subscription_hold_title">Payment issue — access suspended</string>
+    <string name="subscription_hold_message">We couldn\'t process your last payment. Update your payment method in the Play Store to restore access.</string>
+    <string name="subscription_paused_title">Subscription paused</string>
+    <!-- %1$s is the auto-resume date, formatted for the user's locale. -->
+    <string name="subscription_paused_message">Your subscription is paused and will resume on %1$s. Resume it in the Play Store to regain access now.</string>
+    <string name="subscription_paused_message_no_date">Your subscription is paused. Resume it in the Play Store to regain access.</string>
+    <string name="subscription_refunded_title">Subscription ended</string>
+    <string name="subscription_refunded_message">Your subscription was refunded and access has ended. You can subscribe again any time.</string>
+    <string name="subscription_grace_title">Payment issue</string>
+    <string name="subscription_grace_message">We couldn\'t process your last payment. Update your payment method in the Play Store to keep your subscription.</string>
+
+    <!-- Restore. -->
+    <string name="subscription_restore_none_found_title">No purchases found</string>
+    <string name="subscription_restore_none_found_message">There are no purchases on this Google Play account to restore.</string>
+
+    <!-- Purchase failures. -->
+    <string name="subscription_error_title">Something went wrong</string>
+    <string name="subscription_error_network">We couldn\'t reach the store. Check your connection and try again.</string>
+    <string name="subscription_error_payment_declined">Your payment method was declined. Update it in the Play Store and try again.</string>
+    <string name="subscription_error_product_unavailable">This plan isn\'t available right now. Try again later.</string>
+    <string name="subscription_error_already_owned">You already own this. Restore your purchases to unlock it.</string>
+    <string name="subscription_error_store_problem">The store is having trouble. Please try again in a few minutes.</string>
+    <string name="subscription_error_not_play_store">Purchases are only available in the Play Store version of this app.</string>
+    <string name="subscription_error_unknown">We couldn\'t complete that. Please try again.</string>
+
+</resources>

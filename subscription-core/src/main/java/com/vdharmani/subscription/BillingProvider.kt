@@ -2,10 +2,13 @@ package com.vdharmani.subscription
 
 import android.app.Activity
 import com.vdharmani.subscription.model.CustomerInfo
+import com.vdharmani.subscription.model.Entitlement
+import com.vdharmani.subscription.model.PlanChangeEligibility
 import com.vdharmani.subscription.model.Product
 import com.vdharmani.subscription.model.ProductType
 import com.vdharmani.subscription.model.Receipt
 import com.vdharmani.subscription.model.ReplacementMode
+import com.vdharmani.subscription.model.Store
 import com.vdharmani.subscription.model.SubscriberAttributes
 import kotlinx.coroutines.flow.Flow
 
@@ -145,6 +148,38 @@ interface BillingProvider {
     suspend fun logout(): Result<CustomerInfo>
 
     /**
+     * The store this provider actually talks to — the one whose subscriptions
+     * it can change or cancel from this device.
+     *
+     * Entitlements follow the app account, so a provider routinely reports
+     * entitlements billed by *other* stores (the user subscribed on their
+     * iPhone, then signed in here). Comparing [Entitlement.store] against this
+     * value is what separates "we can offer an upgrade" from "this plan is
+     * read-only on this device".
+     */
+    val nativeStore: Store
+        get() = Store.PLAY_STORE
+
+    /**
+     * Whether the store account signed in **right now** owns the purchase
+     * behind [entitlement].
+     *
+     * Returns `Result.success(null)` when the provider cannot tell, which is
+     * the default and the honest answer for SDKs that never expose the
+     * underlying purchase token. A `false` is what proves the user switched
+     * store accounts after subscribing — the entitlement is still valid and
+     * access must be kept, but a plan change would be applied against a token
+     * this account does not own.
+     *
+     * Implement it by comparing [Entitlement.storeTransactionId] against what
+     * the store currently reports it owns (on Google Play, the tokens from
+     * `queryPurchasesAsync`). Leaving it unimplemented costs only the
+     * pre-emptive block: the switch still fails, just later and louder.
+     */
+    suspend fun ownedByCurrentStoreAccount(entitlement: Entitlement): Result<Boolean?> =
+        Result.success(null)
+
+    /**
      * Hot flow of [CustomerInfo] updates. Emits a new value whenever the
      * provider notices a change — renewal, billing failure, billing recovery,
      * a restore, or an identity switch. Collect from a lifecycle-scoped
@@ -198,8 +233,45 @@ class ProductUnavailableException(message: String? = null, cause: Throwable? = n
     BillingException(message ?: "Product is not available for purchase", cause)
 
 /** The user already owns this product / has an active receipt for it. */
-class AlreadyOwnedException(message: String? = null, cause: Throwable? = null) :
+open class AlreadyOwnedException(message: String? = null, cause: Throwable? = null) :
     BillingException(message ?: "Product is already owned", cause)
+
+/**
+ * The store account already has an active subscription linked to a **different**
+ * app account.
+ *
+ * A subscription is owned by the Google Play account, not by the app account,
+ * and only one app account may hold a given store subscription at a time. The
+ * user signed out of the account that bought it and signed into another one:
+ * block the purchase and point them back at the original account, or at
+ * switching Google accounts to buy a genuinely separate subscription.
+ *
+ * A subclass of [AlreadyOwnedException] so existing `is AlreadyOwnedException`
+ * branches keep working; check this type **first** to show the right copy.
+ */
+class SubscriptionAlreadyLinkedException(message: String? = null, cause: Throwable? = null) :
+    AlreadyOwnedException(
+        message ?: "This store subscription is already linked to another app account",
+        cause,
+    )
+
+/**
+ * A plan change was requested that the store will not apply — see
+ * [com.vdharmani.subscription.model.PlanChangeEligibility.Reason] for which
+ * case this is.
+ *
+ * Raised *before* the purchase sheet opens. Letting the attempt through
+ * instead is what produces the two failure modes this exists to prevent: a
+ * developer error on Play, or a silent second full-price subscription on
+ * Apple.
+ */
+class PlanChangeUnavailableException(
+    val reason: PlanChangeEligibility.Reason,
+    val store: Store,
+    message: String? = null,
+) : BillingException(
+    message ?: "Plan change is not available: $reason (billed by $store)",
+)
 
 /** Store-side problem (backend down, unexpected response). Retrying may help. */
 class StoreProblemException(message: String? = null, cause: Throwable? = null) :
@@ -218,6 +290,17 @@ class ProductQueryUnsupportedException(message: String? = null) :
  */
 class SubscriptionChangeUnsupportedException(message: String? = null) :
     BillingException(message ?: "This provider does not support switching subscription plans")
+
+/**
+ * Purchases are restricted to Play-Store installs and this build is not one —
+ * a sideload, an F-Droid or OEM install, a debuggable build, or an
+ * instrumentation run. Only ever raised when
+ * `SubscriptionClient.Config.requirePlayStoreInstaller` is on.
+ */
+class PlayStoreInstallRequiredException(message: String? = null) :
+    BillingException(
+        message ?: "This app must be installed from the Play Store to make purchases.",
+    )
 
 /** Catch-all for failures that don't map to a more specific subclass. */
 class UnknownBillingException(message: String? = null, cause: Throwable? = null) :
