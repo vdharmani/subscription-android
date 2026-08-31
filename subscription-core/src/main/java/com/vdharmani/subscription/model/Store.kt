@@ -34,6 +34,15 @@ enum class Store {
         get() = this == APP_STORE || this == MAC_APP_STORE
 
     /**
+     * `true` for web/third-party billing (Stripe, Paddle, RevenueCat Billing,
+     * or an external processor). Access carries into the app, but the plan is
+     * managed on the website — never offer an in-app purchase on top, which
+     * would double-bill.
+     */
+    val isWeb: Boolean
+        get() = this == STRIPE || this == PADDLE || this == RC_BILLING || this == EXTERNAL
+
+    /**
      * Whether an app running on **this** device can drive a plan change against
      * this store. Only true for the store the registered
      * [com.vdharmani.subscription.BillingProvider] actually talks to; see

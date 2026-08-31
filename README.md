@@ -34,8 +34,8 @@ touching call sites.
 - 🚦 **Subscription-case handling.** Account conflicts, lifecycle states
   (grace / hold / paused / refunded), cross-platform and cross-store-account
   plan changes are detected and blocked *before* the purchase sheet opens —
-  each resolving to a `title` + `message` you render however you like. No
-  dialogs, buttons or layouts are shipped. See
+  each resolving to the exact AppSpec message, tagged with its case id and the
+  container it belongs in. No dialogs, buttons or layouts are shipped. See
   [Subscription cases](#subscription-cases).
 - 🪶 **Three hosts.** Activity, Fragment, and Compose — all use the same
   underlying state machine.
@@ -370,29 +370,45 @@ handles them as follows.
 
 ### Messages
 
-Every resolver returns a `SubscriptionMessage(title, body)`, or `null` when
-there is nothing to say. **That is the whole UI surface.** The library ships no
-buttons, no dialogs, no layouts and no styling — it tells you what happened and
-what to say about it; you decide how it looks.
+Every message the library resolves is quoted **word for word from AppSpec** and
+carries the case id it came from, so a string on screen traces back to the row
+QA signs off:
 
 ```kotlin
-val message = SubscriptionMessages.forError(context, error)
+val m = SubscriptionMessages.forError(context, error)
 // null == user cancelled the sheet. Say nothing; it is not an error.
-message?.let { showDialog(it.title, it.body) }
+m?.let { show(it) }   // it.body, it.display, it.caseId
 ```
 
-| Resolver | Answers |
+`SubscriptionMessage` is `title` + `body` + `display` + `caseId`. **`title` is
+always null** — AppSpec defines one string per case, so a dialog heading is
+yours to add rather than the library's to invent.
+
+`display` is not cosmetic. AppSpec forbids specific pairings: a store conflict
+or destructive confirmation must never be a toast, and an ongoing state
+(offline, payment issue) must be a banner rather than a toast that re-fires on
+every retry. On Android, `TOAST` means a Material `Snackbar` —
+`android.widget.Toast` is rate-limited on 11+ and dropped from the background.
+
+| Resolver | Covers |
 |---|---|
-| `forError(context, throwable)` | a failed purchase / restore / plan change |
-| `forEntitlement(context, entitlement)` | a suspended subscription (grace, hold, paused, refunded) |
-| `forRestore(context, outcome)` | a finished restore |
-| `planChangeBlocked(context, blocked)` | why an upgrade isn't offered (title-less, inline) |
-| `accountDeletion(context, customerInfo)` | the pre-deletion billing warning |
-| `disclosure(context)` | the paywall auto-renewal text |
+| `forError(context, throwable)` | PUR-2EBD, PUR-8A70, PUR-14F7, PUR-4140, LNK-9C34, TRL-7B6A, TRL-F5AA, SIN-ADA3, PAY-60EC, PAY-18D3 |
+| `forEntitlement(context, entitlement)` | STA-FAA1, STA-4747, STA-F9F7, STA-E31C, STA-F01C, STA-01B8, TRL-DDA5 |
+| `forRestore(context, outcome)` | RST-7441, RST-F792, RST-F08E, RST-31B8 |
+| `planChangeBlocked(context, blocked)` | LNK-57F2, LNK-05B7, SMG-100B, XPV-52B3 |
+| `accountDeletion(context, customerInfo)` | LNK-7505, CMB-AE17 |
+| `purchaseActivated` / `trialStarted` | PUR-9CD3, TRL-AF47 |
+| `priceChange(context, deadline)` | TRL-C284 |
+| `offline(context)` | SIN-B7C1, CMB-BF26 |
+| `disclosure` / `trialDisclosure` | PAY-B845, TRL-038F |
+
+A `null` return always means **say nothing** — never "unknown". Unrecognised
+failures fall back to PAY-18D3 rather than going silent.
 
 Copy lives in `res/values/strings.xml` in `subscription-core`. **To change the
-wording, redeclare the same string name in your app** — Android's resource
-merger prefers yours. Translate by adding your own `values-<locale>`.
+wording, redeclare the same string name in your app**; translate by adding your
+own `values-<locale>`. `AppSpecConformanceTest` fails the build if any shipped
+string stops matching AppSpec word for word.
 
 ### Lifecycle states (case 6)
 

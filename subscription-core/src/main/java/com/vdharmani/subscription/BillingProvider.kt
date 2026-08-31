@@ -273,6 +273,52 @@ class PlanChangeUnavailableException(
     message ?: "Plan change is not available: $reason (billed by $store)",
 )
 
+/**
+ * The purchase was accepted but is **not finished** — a UPI mandate, a slow
+ * card, or an Ask to Buy / parental approval waiting on someone else.
+ *
+ * Not a failure, and specifically not a decline: do not grant access, and do
+ * not show an error. The store completes or drops it later, so the outcome
+ * arrives through `observeCustomerInfo()` or on the next launch. Treating this
+ * as [PaymentDeclinedException] tells a user whose payment is merely in flight
+ * that their card was refused.
+ */
+class PaymentPendingException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Purchase is pending confirmation by the store", cause)
+
+/**
+ * The store took the money but the receipt could not be verified.
+ *
+ * Never drop a paid receipt on this — it is retried server-side, and the user
+ * is pointed at Restore Purchases meanwhile.
+ */
+class ReceiptValidationException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Purchase could not be verified", cause)
+
+/**
+ * TLS failed on a billing endpoint — a pinning mismatch or an intercepted
+ * connection. Payment domains fail closed, so this is never retried silently.
+ */
+class SecureConnectionException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "Could not establish a secure connection", cause)
+
+/**
+ * The store refused a free trial for this store account. Trial eligibility is
+ * scoped to the **store** account, not the app account, so a brand-new app
+ * account on a store account that already burned its trial lands here. Keep
+ * offering the paid plan on the same screen.
+ */
+class TrialNotEligibleException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "This store account is not eligible for a free trial", cause)
+
+/**
+ * The store refused an introductory or promotional offer that was displayed.
+ * Never fall through to a silent full-price charge — say the offer is gone and
+ * let the user choose the standard price.
+ */
+class OfferUnavailableException(message: String? = null, cause: Throwable? = null) :
+    BillingException(message ?: "This offer is not available on this account", cause)
+
 /** Store-side problem (backend down, unexpected response). Retrying may help. */
 class StoreProblemException(message: String? = null, cause: Throwable? = null) :
     BillingException(message ?: "Store reported a problem", cause)

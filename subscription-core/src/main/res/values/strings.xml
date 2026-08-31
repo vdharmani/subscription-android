@@ -1,64 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Default copy for every subscription case the library can detect.
+  Message catalogue — AppSpec "App Specification — Messages & Test Cases".
 
-  Titles and messages only. Button labels, plan names, status chips and any
-  other chrome belong to the app, not here — the library reports what
-  happened and leaves the UI to you.
+  Every string is quoted word for word from AppSpec and carries its case id, so
+  a message can be traced back to the row QA signs off. AppSpec's Copy
+  Standards require exactly this: "one string per case, in one keyed resource
+  file per platform and language" and "every message here must be reachable in
+  the build and match word for word". Do not reword these to taste.
 
-  Every string here is overridable: redeclare the same name in your app's
-  res/values/strings.xml and Android's resource merger prefers yours. That is
-  the intended way to adjust tone or brand wording — translate by adding
-  values-<locale> in your app, not by forking this file.
+  Where AppSpec gives only the Apple phrasing (Case 5) or a
+  "{App Store / Play Store}" template, the Android equivalent is resolved here.
+
+  Titles are absent on purpose: AppSpec defines one string per case, so a
+  dialog title is the app's to add rather than the library's to invent.
+
+  To override, redeclare the same name in your app — Android's resource merger
+  prefers yours. Translate by adding your own values-<locale>.
 -->
 <resources>
 
-    <!-- Paywall disclosure. %1$s is the Terms of Use link, %2$s the Privacy Policy link. -->
+    <!-- ==== Paywall & disclosure ==== -->
+    <!-- PAY-B845. %1$s = Terms of Use link, %2$s = Privacy Policy link. -->
     <string name="subscription_disclosure">Subscription auto-renews unless cancelled at least 24 hours before the current period ends. Manage or cancel anytime in Google Play &gt; Subscriptions. By subscribing you agree to our %1$s and %2$s.</string>
     <string name="subscription_terms_label">Terms of Use</string>
     <string name="subscription_privacy_label">Privacy Policy</string>
+    <!-- TRL-038F. %1$s = trial length, %2$s = price, %3$s = period. -->
+    <string name="subscription_trial_disclosure">Free for %1$s days, then %2$s per %3$s. Cancel anytime.</string>
 
-    <!-- Case 1: store subscription already linked to another live app account. -->
-    <string name="subscription_conflict_title">This subscription belongs to another account</string>
-    <string name="subscription_conflict_message">An active subscription on this Google Play account is already linked to a different account in the app. Sign in to that account to use it.\n\nIf you\'d rather keep them separate, switch to a different Google account in the Play Store app, then come back to the app and subscribe again.</string>
+    <!-- ==== Purchase flow ==== -->
+    <string name="subscription_purchase_activated">Subscription activated.</string>
+    <string name="subscription_purchase_pending">Your purchase is being processed. We\'ll unlock access as soon as it\'s confirmed.</string>
+    <string name="subscription_purchase_awaiting_approval">Your purchase is waiting for approval. We\'ll unlock access as soon as it\'s approved.</string>
+    <string name="subscription_payment_declined">Payment couldn\'t be completed. Please check your payment method and try again.</string>
+    <string name="subscription_already_active">You already have an active subscription.</string>
+    <string name="subscription_receipt_unverified">We couldn\'t verify your purchase. Please try Restore Purchases.</string>
 
-    <!-- Case 3: deleting the app account while a subscription is still renewing. -->
-    <string name="subscription_delete_account_title">Deleting won\'t cancel your subscription</string>
-    <string name="subscription_delete_account_message">Your subscription was purchased through Google Play and will keep billing after your account is deleted. Cancel it in the Play Store to stop future charges.\n\nDeleting your account is permanent and cannot be undone.</string>
+    <!-- ==== Trials, offers & price changes ==== -->
+    <string name="subscription_trial_started">Your free trial has started.</string>
+    <!-- TRL-DDA5. %1$s = trial end date. -->
+    <string name="subscription_trial_ends">Your trial ends on %1$s.</string>
+    <string name="subscription_trial_not_eligible">You\'re not eligible for a free trial.</string>
+    <string name="subscription_offer_unavailable">This offer isn\'t available on your account. You can still subscribe at the standard price.</string>
+    <!-- TRL-C284. %1$s = consent deadline. -->
+    <string name="subscription_price_change">The price of your subscription is changing. Confirm by %1$s to keep your access.</string>
 
-    <!-- Case 5: plan change attempted after the user switched Google accounts. -->
-    <string name="subscription_plan_change_account_mismatch">Purchased with a different Google account. Sign in to that account in the Play Store app to upgrade or change your plan.</string>
-
-    <!-- Case 7: entitlement billed by another platform's store. -->
+    <!-- ==== Linkage cases 1-9 ==== -->
+    <!-- LNK-9C34. AppSpec reads "this Apple ID / Google Play account"; Android resolves to Google Play. -->
+    <string name="subscription_conflict">An active subscription on this Google Play account is already linked to a different account in the app. Sign in to that account to use it.</string>
+    <!-- RST-F08E — the shorter form AppSpec uses when a restore hits the conflict. -->
+    <string name="subscription_conflict_short">This subscription belongs to another account.</string>
+    <!-- LNK-7505. AppSpec templates "{App Store / Play Store}"; Android resolves to Play Store. -->
+    <string name="subscription_delete_account">Deleting won\'t cancel your subscription. Cancel it in the Play Store to stop future charges.</string>
+    <!-- LNK-57F2. AppSpec gives only the Apple wording; this is the Android equivalent. -->
+    <string name="subscription_plan_change_account_mismatch">Purchased with a different Google account. Sign in to that account in the Play Store to upgrade or change your plan.</string>
+    <!-- LNK-05B7 — entitlement billed by Apple, viewed on Android. -->
     <string name="subscription_plan_change_apple">Purchased on iPhone through the App Store. To change or cancel your plan, open the app on an iOS device.</string>
-    <string name="subscription_plan_change_other_store">Purchased outside Google Play. To change or cancel your plan, use the store you subscribed through.</string>
-    <string name="subscription_plan_change_not_active">Your subscription isn\'t active right now, so it can\'t be changed. Restore access first, or subscribe again.</string>
-    <string name="subscription_plan_change_none">You don\'t have a subscription to change yet.</string>
+    <!-- SMG-100B — entitlement billed on the web. -->
+    <string name="subscription_plan_change_web">Purchased on the web. Manage your subscription from your account on our website.</string>
+    <!-- XPV-52B3. %1$s = one of the store labels below. -->
+    <string name="subscription_plan_change_provider">Purchased through %1$s. Manage it there to change or cancel your plan.</string>
+    <string name="subscription_store_app_store">the App Store</string>
+    <string name="subscription_store_play_store">the Play Store</string>
+    <string name="subscription_store_website">our website</string>
 
-    <!-- Case 6: lifecycle states that are not plain active or expired. -->
-    <string name="subscription_hold_title">Payment issue — access suspended</string>
-    <string name="subscription_hold_message">We couldn\'t process your last payment. Update your payment method in the Play Store to restore access.</string>
-    <string name="subscription_paused_title">Subscription paused</string>
-    <!-- %1$s is the auto-resume date, formatted for the user's locale. -->
-    <string name="subscription_paused_message">Your subscription is paused and will resume on %1$s. Resume it in the Play Store to regain access now.</string>
-    <string name="subscription_paused_message_no_date">Your subscription is paused. Resume it in the Play Store to regain access.</string>
-    <string name="subscription_refunded_title">Subscription ended</string>
-    <string name="subscription_refunded_message">Your subscription was refunded and access has ended. You can subscribe again any time.</string>
-    <string name="subscription_grace_title">Payment issue</string>
-    <string name="subscription_grace_message">We couldn\'t process your last payment. Update your payment method in the Play Store to keep your subscription.</string>
+    <!-- ==== Lifecycle states ==== -->
+    <!-- STA-FAA1. %1$s = period end date. -->
+    <string name="subscription_ends_on">Your subscription ends on %1$s.</string>
+    <string name="subscription_grace">Payment issue — update your payment method to keep your access.</string>
+    <string name="subscription_hold">Payment issue — access suspended. Update your payment method in the Play Store to restore access.</string>
+    <!-- STA-E31C. %1$s = auto-resume date. -->
+    <string name="subscription_paused">Your subscription is paused and will resume on %1$s. Resume it in the Play Store to regain access now.</string>
+    <!-- STA-F01C, also CAC-3674 on cold start after a real expiry. -->
+    <string name="subscription_expired">Your subscription has ended. Subscribe again to continue.</string>
+    <string name="subscription_refunded">Your subscription was refunded and access has ended. You can subscribe again any time.</string>
 
-    <!-- Restore. -->
-    <string name="subscription_restore_none_found_title">No purchases found</string>
-    <string name="subscription_restore_none_found_message">There are no purchases on this Google Play account to restore.</string>
+    <!-- ==== Restore ==== -->
+    <string name="subscription_restore_none">No purchases found.</string>
+    <string name="subscription_restored">Your subscription has been restored.</string>
 
-    <!-- Purchase failures. -->
-    <string name="subscription_error_title">Something went wrong</string>
-    <string name="subscription_error_network">We couldn\'t reach the store. Check your connection and try again.</string>
-    <string name="subscription_error_payment_declined">Your payment method was declined. Update it in the Play Store and try again.</string>
-    <string name="subscription_error_product_unavailable">This plan isn\'t available right now. Try again later.</string>
-    <string name="subscription_error_already_owned">You already own this. Restore your purchases to unlock it.</string>
-    <string name="subscription_error_store_problem">The store is having trouble. Please try again in a few minutes.</string>
-    <string name="subscription_error_not_play_store">Purchases are only available in the Play Store version of this app.</string>
-    <string name="subscription_error_unknown">We couldn\'t complete that. Please try again.</string>
+    <!-- ==== Internet, SSL & server ==== -->
+    <string name="subscription_no_internet">Please check your internet connection.</string>
+    <string name="subscription_secure_connection_failed">We couldn\'t establish a secure connection. Please try again later.</string>
+    <string name="subscription_offline_saved_data">You\'re offline — showing saved data.</string>
+    <!-- PAY-18D3 / SIN-F34F. AppSpec: distinguish a store outage from user error in the logs, not in the message. -->
+    <string name="subscription_generic_error">Something went wrong. Please try again.</string>
 
 </resources>

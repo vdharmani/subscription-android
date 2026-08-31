@@ -32,9 +32,13 @@ import com.revenuecat.purchases.models.StoreTransaction
 import com.vdharmani.subscription.AlreadyOwnedException
 import com.vdharmani.subscription.BillingNetworkException
 import com.vdharmani.subscription.BillingProvider
+import com.vdharmani.subscription.OfferUnavailableException
 import com.vdharmani.subscription.PaymentDeclinedException
+import com.vdharmani.subscription.PaymentPendingException
 import com.vdharmani.subscription.ProductUnavailableException
 import com.vdharmani.subscription.PurchaseCancelledException
+import com.vdharmani.subscription.ReceiptValidationException
+import com.vdharmani.subscription.SecureConnectionException
 import com.vdharmani.subscription.StoreProblemException
 import com.vdharmani.subscription.SubscriptionAlreadyLinkedException
 import com.vdharmani.subscription.UnknownBillingException
@@ -464,10 +468,26 @@ class RevenueCatProvider(
         PurchasesErrorCode.NetworkError ->
             BillingNetworkException(error.message, this)
 
-        PurchasesErrorCode.PurchaseNotAllowedError,
-        PurchasesErrorCode.PurchaseInvalidError,
+        // Pending is not a decline. A UPI mandate, a slow card, or an Ask to
+        // Buy approval can still complete, so this must not surface as a
+        // failed payment — the outcome arrives later via the customer-info
+        // stream or on the next launch.
         PurchasesErrorCode.PaymentPendingError ->
+            PaymentPendingException(error.message, this)
+
+        PurchasesErrorCode.PurchaseNotAllowedError,
+        PurchasesErrorCode.PurchaseInvalidError ->
             PaymentDeclinedException(error.message, this)
+
+        PurchasesErrorCode.InvalidReceiptError,
+        PurchasesErrorCode.MissingReceiptFileError ->
+            ReceiptValidationException(error.message, this)
+
+        PurchasesErrorCode.IneligibleError ->
+            OfferUnavailableException(error.message, this)
+
+        PurchasesErrorCode.SignatureVerificationError ->
+            SecureConnectionException(error.message, this)
 
         PurchasesErrorCode.ProductNotAvailableForPurchaseError ->
             ProductUnavailableException(error.message, this)

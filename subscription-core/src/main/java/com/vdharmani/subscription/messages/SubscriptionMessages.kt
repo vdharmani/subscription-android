@@ -4,16 +4,20 @@ import android.content.Context
 import android.text.format.DateFormat
 import com.vdharmani.subscription.AlreadyOwnedException
 import com.vdharmani.subscription.BillingNetworkException
+import com.vdharmani.subscription.OfferUnavailableException
 import com.vdharmani.subscription.PaymentDeclinedException
+import com.vdharmani.subscription.PaymentPendingException
 import com.vdharmani.subscription.PlanChangeUnavailableException
-import com.vdharmani.subscription.PlayStoreInstallRequiredException
-import com.vdharmani.subscription.ProductUnavailableException
 import com.vdharmani.subscription.PurchaseCancelledException
 import com.vdharmani.subscription.R
-import com.vdharmani.subscription.StoreProblemException
+import com.vdharmani.subscription.ReceiptValidationException
+import com.vdharmani.subscription.SecureConnectionException
 import com.vdharmani.subscription.SubscriptionAlreadyLinkedException
+import com.vdharmani.subscription.TrialNotEligibleException
+import com.vdharmani.subscription.messages.SubscriptionMessage.Display
 import com.vdharmani.subscription.model.CustomerInfo
 import com.vdharmani.subscription.model.Entitlement
+import com.vdharmani.subscription.model.PeriodType
 import com.vdharmani.subscription.model.PlanChangeEligibility
 import com.vdharmani.subscription.model.RestoreOutcome
 import com.vdharmani.subscription.model.Store
@@ -21,146 +25,193 @@ import com.vdharmani.subscription.model.SubscriptionStatus
 import java.util.Date
 
 /**
- * Turns the library's typed outcomes into the copy to put in front of the user.
+ * Resolves every subscription outcome to the message AppSpec specifies for it.
  *
- * Every string comes from `res/values/strings.xml` in this module, so an app
- * changes the wording by redeclaring the same resource name and translates it
- * by adding its own `values-<locale>` — no fork, no string tables copied
- * between projects.
+ * Each returned [SubscriptionMessage] carries the AppSpec case id it came from,
+ * so a string on screen can be traced to the row QA signs off against.
  *
- * The point of routing through here rather than showing `throwable.message` is
- * that SDK messages are written for developers ("ITEM_ALREADY_OWNED"), leak
- * implementation detail, and are never localised.
+ * A `null` return always means **say nothing** — a cancelled purchase sheet, a
+ * healthy subscription — never "unknown". Unrecognised failures fall back to
+ * the generic message rather than going silent.
+ *
+ * Strings come from this module's `res/values/strings.xml` and are quoted word
+ * for word from AppSpec; override by redeclaring a name in your app.
  */
 object SubscriptionMessages {
 
+    // -- purchase ---------------------------------------------------------
+
+    /** PUR-9CD3 — a completed, validated purchase. */
+    fun purchaseActivated(context: Context) =
+        msg(context, R.string.subscription_purchase_activated, Display.TOAST, "PUR-9CD3")
+
+    /** TRL-AF47 — a free trial has begun. */
+    fun trialStarted(context: Context) =
+        msg(context, R.string.subscription_trial_started, Display.TOAST, "TRL-AF47")
+
     /**
-     * Copy for a failed billing call, or **null when there is nothing to show**
-     * — that is what a user dismissing the purchase sheet produces, and showing
-     * an error dialog for it is the single most common mistake in this area.
+     * Copy for a failed billing call, or **null when there is nothing to show**.
      *
-     * `null` means "say nothing", not "unknown"; unrecognised failures fall
-     * back to a generic message rather than returning null.
+     * `null` is what a dismissed purchase sheet produces (PUR-DE40). Showing an
+     * error there is the single most common mistake in this area.
      */
     fun forError(context: Context, error: Throwable): SubscriptionMessage? = when (error) {
         is PurchaseCancelledException -> null
 
-        // Must precede AlreadyOwnedException, which it extends: "somebody
-        // else's account owns this" and "you own this" need different copy.
-        is SubscriptionAlreadyLinkedException -> SubscriptionMessage(
-            title = context.getString(R.string.subscription_conflict_title),
-            body = context.getString(R.string.subscription_conflict_message),
-        )
+        // PUR-8A70 / TRL-1C28. Pending is not a decline: the money may still
+        // land. Say it is processing, grant nothing, show no error.
+        is PaymentPendingException ->
+            msg(context, R.string.subscription_purchase_pending, Display.TOAST, "PUR-8A70")
 
-        is PlanChangeUnavailableException -> SubscriptionMessage(
-            title = null,
-            body = planChangeBlockedBody(context, error.reason, error.store),
-        )
+        // Must precede AlreadyOwnedException, which it extends.
+        is SubscriptionAlreadyLinkedException ->
+            msg(context, R.string.subscription_conflict, Display.DIALOG, "LNK-9C34")
 
-        is PlayStoreInstallRequiredException -> genericError(context, R.string.subscription_error_not_play_store)
-        is BillingNetworkException -> genericError(context, R.string.subscription_error_network)
-        is PaymentDeclinedException -> genericError(context, R.string.subscription_error_payment_declined)
-        is ProductUnavailableException -> genericError(context, R.string.subscription_error_product_unavailable)
-        is AlreadyOwnedException -> genericError(context, R.string.subscription_error_already_owned)
-        is StoreProblemException -> genericError(context, R.string.subscription_error_store_problem)
-        else -> genericError(context, R.string.subscription_error_unknown)
+        is PlanChangeUnavailableException ->
+            planChangeBlocked(context, error.reason, error.store)
+
+        is TrialNotEligibleException ->
+            msg(context, R.string.subscription_trial_not_eligible, Display.DIALOG, "TRL-7B6A")
+
+        is OfferUnavailableException ->
+            msg(context, R.string.subscription_offer_unavailable, Display.DIALOG, "TRL-F5AA")
+
+        is ReceiptValidationException ->
+            msg(context, R.string.subscription_receipt_unverified, Display.DIALOG, "PUR-4140")
+
+        is PaymentDeclinedException ->
+            msg(context, R.string.subscription_payment_declined, Display.DIALOG, "PUR-2EBD")
+
+        is AlreadyOwnedException ->
+            msg(context, R.string.subscription_already_active, Display.DIALOG, "PUR-14F7")
+
+        // Payment domains fail closed, so this is never a silent retry.
+        is SecureConnectionException ->
+            msg(context, R.string.subscription_secure_connection_failed, Display.DIALOG, "SIN-ADA3")
+
+        is BillingNetworkException ->
+            msg(context, R.string.subscription_no_internet, Display.TOAST, "PAY-60EC")
+
+        // AppSpec: tell a store outage apart from user error in the logs, not
+        // in the message.
+        else -> msg(context, R.string.subscription_generic_error, Display.TOAST, "PAY-18D3")
     }
 
+    // -- lifecycle --------------------------------------------------------
+
     /**
-     * Copy for an entitlement whose state the user needs to know about —
-     * payment failure, hold, pause, refund.
+     * The state message for an entitlement, or null when the state speaks for
+     * itself ([SubscriptionStatus.ACTIVE]).
      *
-     * Returns null for the states that speak for themselves ([SubscriptionStatus.ACTIVE],
-     * [SubscriptionStatus.CANCELLED], [SubscriptionStatus.EXPIRED]): an active
-     * subscription needs no banner, and a cancelled one still grants access
-     * until it lapses, so warning about it would be wrong.
-     *
-     * These are four distinct states and deliberately do not share a title. A
-     * hold is a payment failure the user can fix, a pause is something they
-     * chose and that will undo itself, and a refund is final.
+     * These are distinct states with deliberately distinct copy: a grace period
+     * still has access and a hold does not; a pause is user-initiated and
+     * undoes itself; a refund is final. A cancelled subscription is reassured
+     * about its end date, not warned.
      */
     fun forEntitlement(context: Context, entitlement: Entitlement): SubscriptionMessage? =
         when (entitlement.status) {
-            SubscriptionStatus.IN_GRACE_PERIOD -> SubscriptionMessage(
-                title = context.getString(R.string.subscription_grace_title),
-                body = context.getString(R.string.subscription_grace_message),
-            )
+            SubscriptionStatus.ACTIVE -> null
 
-            SubscriptionStatus.ON_HOLD -> SubscriptionMessage(
-                title = context.getString(R.string.subscription_hold_title),
-                body = context.getString(R.string.subscription_hold_message),
-            )
+            // TRL-DDA5 while still in the trial, STA-FAA1 once paying. Both
+            // reassure — cancelling is not expiry, access runs to the date.
+            SubscriptionStatus.CANCELLED -> {
+                val ends = entitlement.expiresAtSeconds
+                if (entitlement.periodType == PeriodType.TRIAL) {
+                    msg(context, R.string.subscription_trial_ends, Display.INLINE, "TRL-DDA5", ends)
+                } else {
+                    msg(context, R.string.subscription_ends_on, Display.INLINE, "STA-FAA1", ends)
+                }
+            }
 
-            SubscriptionStatus.PAUSED -> SubscriptionMessage(
-                title = context.getString(R.string.subscription_paused_title),
-                body = entitlement.autoResumeAtSeconds
-                    ?.let {
-                        context.getString(
-                            R.string.subscription_paused_message,
-                            formatDate(context, it),
-                        )
-                    }
-                    ?: context.getString(R.string.subscription_paused_message_no_date),
-            )
+            SubscriptionStatus.IN_GRACE_PERIOD ->
+                msg(context, R.string.subscription_grace, Display.BANNER, "STA-4747")
 
-            SubscriptionStatus.REFUNDED -> SubscriptionMessage(
-                title = context.getString(R.string.subscription_refunded_title),
-                body = context.getString(R.string.subscription_refunded_message),
-            )
+            SubscriptionStatus.ON_HOLD ->
+                msg(context, R.string.subscription_hold, Display.DIALOG, "STA-F9F7")
 
-            SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.CANCELLED,
-            SubscriptionStatus.EXPIRED,
-            -> null
+            // PAUSED is detected from the auto-resume date, so it is always
+            // present here and the date never needs a fallback.
+            SubscriptionStatus.PAUSED ->
+                msg(
+                    context, R.string.subscription_paused, Display.BANNER, "STA-E31C",
+                    entitlement.autoResumeAtSeconds,
+                )
+
+            SubscriptionStatus.EXPIRED ->
+                msg(context, R.string.subscription_expired, Display.PAYWALL, "STA-F01C")
+
+            SubscriptionStatus.REFUNDED ->
+                msg(context, R.string.subscription_refunded, Display.DIALOG, "STA-01B8")
         }
 
+    /** TRL-C284 — price-change consent. [deadlineSeconds] is the confirm-by date. */
+    fun priceChange(context: Context, deadlineSeconds: Long) =
+        msg(context, R.string.subscription_price_change, Display.BANNER, "TRL-C284", deadlineSeconds)
+
+    // -- plan changes -----------------------------------------------------
+
     /**
-     * The line to put under the plan name on the Manage Subscription screen
-     * when the plan cannot be changed from this device. Carries no title — it
-     * belongs inline next to the plan, not in a dialog.
+     * Why a plan change is not offered, or **null when AppSpec specifies no
+     * message** — having nothing to change is not something to announce, so the
+     * screen simply shows no upgrade button.
      */
     fun planChangeBlocked(
         context: Context,
         blocked: PlanChangeEligibility.Blocked,
-    ): SubscriptionMessage = SubscriptionMessage(
-        title = null,
-        body = planChangeBlockedBody(context, blocked.reason, blocked.store),
-    )
+    ): SubscriptionMessage? = planChangeBlocked(context, blocked.reason, blocked.store)
+
+    // -- restore ----------------------------------------------------------
+
+    /** Copy for a finished restore. */
+    fun forRestore(context: Context, outcome: RestoreOutcome): SubscriptionMessage? = when (outcome) {
+        is RestoreOutcome.Restored ->
+            msg(context, R.string.subscription_restored, Display.TOAST, "RST-F792")
+
+        is RestoreOutcome.NothingToRestore ->
+            msg(context, R.string.subscription_restore_none, Display.TOAST, "RST-7441")
+
+        is RestoreOutcome.LinkedToAnotherAccount ->
+            msg(context, R.string.subscription_conflict_short, Display.DIALOG, "RST-F08E")
+
+        // RST-31B8: never conclude "no purchases" from a failed network call.
+        is RestoreOutcome.Failed -> forError(context, outcome.error)
+    }
+
+    // -- account deletion -------------------------------------------------
 
     /**
-     * Case 3 — copy for the account-deletion confirmation, or **null when no
-     * billing warning is warranted**.
+     * LNK-7505 / CMB-AE17 — the deletion warning, or **null when no billing
+     * warning is warranted** (nothing is renewing, so promising continued
+     * billing would be false; show your plain deletion confirmation instead).
      *
-     * Null means "show your plain deletion confirmation": nothing is set to
-     * renew, so promising the user that billing continues would be false. It
-     * never means "block the deletion" — an app that supports account creation
-     * has to let the user delete from inside the app, and the store
-     * subscription is not the app's to cancel on their behalf. Pair this with
-     * `SubscriptionClient.openManageSubscription` so the user can actually go
-     * and cancel.
+     * Never a block: an app that supports account creation has to let the user
+     * delete from inside it, and the store subscription is not the app's to
+     * cancel. Pair with `SubscriptionClient.openManageSubscription`.
      *
-     * Name the confirm/dismiss buttons yourself. One caution worth keeping:
-     * don't label the dismiss button "Cancel" — the body already uses "cancel"
-     * to mean cancelling the subscription, so the same word on a button that
-     * does the opposite is a misread waiting to happen.
+     * Name the buttons yourself — AppSpec's are Keep Account / Delete Anyway.
+     * Do not label the dismiss button "Cancel": the body already uses "cancel"
+     * to mean cancelling the subscription.
      */
     fun accountDeletion(context: Context, customerInfo: CustomerInfo): SubscriptionMessage? =
         if (customerInfo.hasRenewingSubscription) {
-            SubscriptionMessage(
-                title = context.getString(R.string.subscription_delete_account_title),
-                body = context.getString(R.string.subscription_delete_account_message),
-            )
+            msg(context, R.string.subscription_delete_account, Display.DIALOG, "LNK-7505")
         } else {
             null
         }
 
+    // -- connectivity -----------------------------------------------------
+
     /**
-     * The auto-renewal disclosure to show before the user confirms a purchase,
-     * as plain text with both link labels already inlined.
-     *
-     * Rendering is yours: locate [termsLabel] and [privacyLabel] in the
-     * returned string and span them however your design system wants.
+     * SIN-B7C1 / CMB-BF26 — shown while serving a cached entitlement offline.
+     * A banner, not a toast: it is an ongoing state, and a failed refresh must
+     * never revoke access or read as "no subscription".
      */
+    fun offline(context: Context) =
+        msg(context, R.string.subscription_offline_saved_data, Display.BANNER, "SIN-B7C1")
+
+    // -- paywall text -----------------------------------------------------
+
+    /** PAY-B845 — the auto-renewal disclosure, with both link labels inlined. */
     fun disclosure(context: Context): String = context.getString(
         R.string.subscription_disclosure,
         termsLabel(context),
@@ -180,52 +231,83 @@ object SubscriptionMessages {
         context.getString(R.string.subscription_privacy_label)
 
     /**
-     * Copy for a finished restore, or null when it restored something and the
-     * caller should just grant access.
+     * TRL-038F — the trial disclosure both stores require when a trial is
+     * offered. Take [price] and [period] from the store's own product so the
+     * figures match what will actually be charged.
      */
-    fun forRestore(context: Context, outcome: RestoreOutcome): SubscriptionMessage? = when (outcome) {
-        is RestoreOutcome.Restored -> null
+    fun trialDisclosure(context: Context, days: Int, price: String, period: String): String =
+        context.getString(R.string.subscription_trial_disclosure, days.toString(), price, period)
 
-        is RestoreOutcome.NothingToRestore -> SubscriptionMessage(
-            title = context.getString(R.string.subscription_restore_none_found_title),
-            body = context.getString(R.string.subscription_restore_none_found_message),
-        )
+    // -- internals --------------------------------------------------------
 
-        is RestoreOutcome.LinkedToAnotherAccount -> SubscriptionMessage(
-            title = context.getString(R.string.subscription_conflict_title),
-            body = context.getString(R.string.subscription_conflict_message),
-        )
-
-        is RestoreOutcome.Failed -> forError(context, outcome.error)
-    }
-
-    private fun planChangeBlockedBody(
+    private fun planChangeBlocked(
         context: Context,
         reason: PlanChangeEligibility.Reason,
         store: Store,
-    ): String = when (reason) {
-        PlanChangeEligibility.Reason.CROSS_PLATFORM ->
-            if (store.isApple) {
-                context.getString(R.string.subscription_plan_change_apple)
-            } else {
-                context.getString(R.string.subscription_plan_change_other_store)
-            }
+    ): SubscriptionMessage? = when (reason) {
+        PlanChangeEligibility.Reason.CROSS_PLATFORM -> when {
+            store.isApple ->
+                msg(context, R.string.subscription_plan_change_apple, Display.INLINE, "LNK-05B7")
 
-        PlanChangeEligibility.Reason.STORE_ACCOUNT_MISMATCH ->
-            context.getString(R.string.subscription_plan_change_account_mismatch)
+            store.isWeb ->
+                msg(context, R.string.subscription_plan_change_web, Display.INLINE, "SMG-100B")
 
-        PlanChangeEligibility.Reason.SUBSCRIPTION_NOT_ACTIVE ->
-            context.getString(R.string.subscription_plan_change_not_active)
+            else -> SubscriptionMessage(
+                title = null,
+                body = context.getString(
+                    R.string.subscription_plan_change_provider,
+                    storeLabel(context, store),
+                ),
+                display = Display.INLINE,
+                caseId = "XPV-52B3",
+            )
+        }
 
-        PlanChangeEligibility.Reason.NO_ACTIVE_SUBSCRIPTION ->
-            context.getString(R.string.subscription_plan_change_none)
+        PlanChangeEligibility.Reason.STORE_ACCOUNT_MISMATCH -> msg(
+            context, R.string.subscription_plan_change_account_mismatch, Display.INLINE, "LNK-57F2",
+        )
+
+        // AppSpec specifies no message for these: with nothing live to change,
+        // the screen just doesn't offer the option. Inventing copy here would
+        // break "one string per case".
+        PlanChangeEligibility.Reason.NO_ACTIVE_SUBSCRIPTION,
+        PlanChangeEligibility.Reason.SUBSCRIPTION_NOT_ACTIVE,
+        -> null
     }
 
-    private fun genericError(context: Context, bodyRes: Int) = SubscriptionMessage(
-        title = context.getString(R.string.subscription_error_title),
-        body = context.getString(bodyRes),
+    private fun storeLabel(context: Context, store: Store): String = context.getString(
+        when {
+            store.isApple -> R.string.subscription_store_app_store
+            store.isWeb -> R.string.subscription_store_website
+            else -> R.string.subscription_store_play_store
+        },
     )
 
-    private fun formatDate(context: Context, unixSeconds: Long): String =
-        DateFormat.getDateFormat(context).format(Date(unixSeconds * 1000L))
+    private fun msg(
+        context: Context,
+        bodyRes: Int,
+        display: Display,
+        caseId: String,
+    ) = SubscriptionMessage(
+        title = null,
+        body = context.getString(bodyRes),
+        display = display,
+        caseId = caseId,
+    )
+
+    private fun msg(
+        context: Context,
+        bodyRes: Int,
+        display: Display,
+        caseId: String,
+        dateSeconds: Long?,
+    ) = SubscriptionMessage(
+        title = null,
+        body = context.getString(bodyRes, formatDate(context, dateSeconds)),
+        display = display,
+        caseId = caseId,
+    )
+
+    private fun formatDate(context: Context, unixSeconds: Long?): String =
+        unixSeconds?.let { DateFormat.getDateFormat(context).format(Date(it * 1000L)) }.orEmpty()
 }

@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -56,6 +57,16 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
+// AppSpecConformanceTest reads res/values/strings.xml off the filesystem, which
+// Gradle cannot infer as a test input. Without declaring it, editing a string
+// leaves the test task UP-TO-DATE and the conformance check silently does not
+// run — exactly the drift it exists to catch.
+tasks.withType<Test>().configureEach {
+    inputs.dir(layout.projectDirectory.dir("src/main/res"))
+        .withPropertyName("subscriptionStringResources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 afterEvaluate {
     publishing {
         publications {
@@ -63,7 +74,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.vdharmani.subscription-android"
                 artifactId = "subscription-core"
-                version = "1.8.0"
+                version = "2.0.0"
             }
         }
     }
