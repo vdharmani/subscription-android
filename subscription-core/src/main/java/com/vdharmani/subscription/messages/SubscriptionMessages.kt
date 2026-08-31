@@ -54,7 +54,7 @@ object SubscriptionMessages {
 
         is PlanChangeUnavailableException -> SubscriptionMessage(
             title = null,
-            body = planChangeBlocked(context, error.reason, error.store),
+            body = planChangeBlockedBody(context, error.reason, error.store),
         )
 
         is PlayStoreInstallRequiredException -> genericError(context, R.string.subscription_error_not_play_store)
@@ -116,10 +116,16 @@ object SubscriptionMessages {
 
     /**
      * The line to put under the plan name on the Manage Subscription screen
-     * when the plan cannot be changed from this device.
+     * when the plan cannot be changed from this device. Carries no title — it
+     * belongs inline next to the plan, not in a dialog.
      */
-    fun planChangeBlocked(context: Context, blocked: PlanChangeEligibility.Blocked): String =
-        planChangeBlocked(context, blocked.reason, blocked.store)
+    fun planChangeBlocked(
+        context: Context,
+        blocked: PlanChangeEligibility.Blocked,
+    ): SubscriptionMessage = SubscriptionMessage(
+        title = null,
+        body = planChangeBlockedBody(context, blocked.reason, blocked.store),
+    )
 
     /**
      * Case 3 — copy for the account-deletion confirmation, or **null when no
@@ -132,6 +138,11 @@ object SubscriptionMessages {
      * subscription is not the app's to cancel on their behalf. Pair this with
      * `SubscriptionClient.openManageSubscription` so the user can actually go
      * and cancel.
+     *
+     * Name the confirm/dismiss buttons yourself. One caution worth keeping:
+     * don't label the dismiss button "Cancel" — the body already uses "cancel"
+     * to mean cancelling the subscription, so the same word on a button that
+     * does the opposite is a misread waiting to happen.
      */
     fun accountDeletion(context: Context, customerInfo: CustomerInfo): SubscriptionMessage? =
         if (customerInfo.hasRenewingSubscription) {
@@ -144,17 +155,29 @@ object SubscriptionMessages {
         }
 
     /**
-     * Label for the dismiss button on the deletion dialog. Deliberately not
-     * "Cancel": the body already uses "cancel" to mean cancelling the
-     * subscription, and a button that does the opposite under the same word is
-     * a misread waiting to happen.
+     * The auto-renewal disclosure to show before the user confirms a purchase,
+     * as plain text with both link labels already inlined.
+     *
+     * Rendering is yours: locate [termsLabel] and [privacyLabel] in the
+     * returned string and span them however your design system wants.
      */
-    fun keepAccountLabel(context: Context): String =
-        context.getString(R.string.subscription_delete_account_keep)
+    fun disclosure(context: Context): String = context.getString(
+        R.string.subscription_disclosure,
+        termsLabel(context),
+        privacyLabel(context),
+    )
 
-    /** Label for the confirming button on the deletion dialog. */
-    fun deleteAnywayLabel(context: Context): String =
-        context.getString(R.string.subscription_delete_account_confirm)
+    /**
+     * The exact substring inside [disclosure] that must link to your Terms of
+     * Use. Read it from here rather than hardcoding "Terms of Use", so the link
+     * still lands on the right words once the string is translated.
+     */
+    fun termsLabel(context: Context): String =
+        context.getString(R.string.subscription_terms_label)
+
+    /** The substring inside [disclosure] that must link to your Privacy Policy. */
+    fun privacyLabel(context: Context): String =
+        context.getString(R.string.subscription_privacy_label)
 
     /**
      * Copy for a finished restore, or null when it restored something and the
@@ -176,7 +199,7 @@ object SubscriptionMessages {
         is RestoreOutcome.Failed -> forError(context, outcome.error)
     }
 
-    private fun planChangeBlocked(
+    private fun planChangeBlockedBody(
         context: Context,
         reason: PlanChangeEligibility.Reason,
         store: Store,

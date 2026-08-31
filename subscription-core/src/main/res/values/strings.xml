@@ -2,6 +2,10 @@
 <!--
   Default copy for every subscription case the library can detect.
 
+  Titles and messages only. Button labels, plan names, status chips and any
+  other chrome belong to the app, not here — the library reports what
+  happened and leaves the UI to you.
+
   Every string here is overridable: redeclare the same name in your app's
   res/values/strings.xml and Android's resource merger prefers yours. That is
   the intended way to adjust tone or brand wording — translate by adding
@@ -21,8 +25,6 @@
     <!-- Case 3: deleting the app account while a subscription is still renewing. -->
     <string name="subscription_delete_account_title">Deleting won\'t cancel your subscription</string>
     <string name="subscription_delete_account_message">Your subscription was purchased through Google Play and will keep billing after your account is deleted. Cancel it in the Play Store to stop future charges.\n\nDeleting your account is permanent and cannot be undone.</string>
-    <string name="subscription_delete_account_keep">Keep Account</string>
-    <string name="subscription_delete_account_confirm">Delete Anyway</string>
 
     <!-- Case 5: plan change attempted after the user switched Google accounts. -->
     <string name="subscription_plan_change_account_mismatch">Purchased with a different Google account. Sign in to that account in the Play Store app to upgrade or change your plan.</string>

@@ -34,7 +34,8 @@ touching call sites.
 - 🚦 **Subscription-case handling.** Account conflicts, lifecycle states
   (grace / hold / paused / refunded), cross-platform and cross-store-account
   plan changes are detected and blocked *before* the purchase sheet opens —
-  each with default, overridable user-facing copy. See
+  each resolving to a `title` + `message` you render however you like. No
+  dialogs, buttons or layouts are shipped. See
   [Subscription cases](#subscription-cases).
 - 🪶 **Three hosts.** Activity, Fragment, and Compose — all use the same
   underlying state machine.
@@ -361,7 +362,7 @@ handles them as follows.
 | 2 | Store sub linked to no app account | Restores and links normally (`RestoreOutcome.Restored`) |
 | 3 | Account deletion with an active subscription | `accountDeletion(...)` warning copy + `openManageSubscription()`; never blocks |
 | 4 | Store sub active, linked app account deleted | Same as case 2 — your backend soft-deletes the linkage row |
-| 5 | Plan change after store-account switch | `PlanChangeEligibility.Blocked(STORE_ACCOUNT_MISMATCH)` |
+| 5 | Plan change after store-account switch | `PlanChangeEligibility.Blocked(STORE_ACCOUNT_MISMATCH)` — needs a provider that implements `ownedByCurrentStoreAccount` |
 | 6 | Grace / hold / paused / refunded | `Entitlement.status` + `grantsAccess`, with per-state copy |
 | 7 | Cross-platform entitlement | `PlanChangeEligibility.Blocked(CROSS_PLATFORM)` — access still granted |
 | 8 | Normal plan change, same store account | `changeSubscription(...)` + `ReplacementMode.forPlanSwitch(...)` |
@@ -369,16 +370,29 @@ handles them as follows.
 
 ### Messages
 
-All user-facing copy lives in `res/values/strings.xml` in `subscription-core`
-and is resolved through `SubscriptionMessages`. **To change the wording,
-redeclare the same string name in your app** — Android's resource merger
-prefers yours. Translate by adding your own `values-<locale>`.
+Every resolver returns a `SubscriptionMessage(title, body)`, or `null` when
+there is nothing to say. **That is the whole UI surface.** The library ships no
+buttons, no dialogs, no layouts and no styling — it tells you what happened and
+what to say about it; you decide how it looks.
 
 ```kotlin
 val message = SubscriptionMessages.forError(context, error)
 // null == user cancelled the sheet. Say nothing; it is not an error.
 message?.let { showDialog(it.title, it.body) }
 ```
+
+| Resolver | Answers |
+|---|---|
+| `forError(context, throwable)` | a failed purchase / restore / plan change |
+| `forEntitlement(context, entitlement)` | a suspended subscription (grace, hold, paused, refunded) |
+| `forRestore(context, outcome)` | a finished restore |
+| `planChangeBlocked(context, blocked)` | why an upgrade isn't offered (title-less, inline) |
+| `accountDeletion(context, customerInfo)` | the pre-deletion billing warning |
+| `disclosure(context)` | the paywall auto-renewal text |
+
+Copy lives in `res/values/strings.xml` in `subscription-core`. **To change the
+wording, redeclare the same string name in your app** — Android's resource
+merger prefers yours. Translate by adding your own `values-<locale>`.
 
 ### Lifecycle states (case 6)
 
@@ -460,51 +474,42 @@ is a realistic App Store rejection, and the subscription is not yours to
 cancel:
 
 ```kotlin
+// null == nothing is set to auto-renew, so a billing warning would be a lie.
 val warning = SubscriptionMessages.accountDeletion(context, customerInfo)
-if (warning != null) {
-    // Only fires while something is still set to auto-renew.
+if (warning == null) {
+    showPlainDeleteConfirmation()
+} else {
     AlertDialog.Builder(context)
         .setTitle(warning.title)
         .setMessage(warning.body)
-        // "Keep Account", not "Cancel" — the body already uses "cancel" to
-        // mean cancelling the subscription.
-        .setNegativeButton(SubscriptionMessages.keepAccountLabel(context)) { _, _ ->
+        .setNegativeButton(R.string.keep_account) { _, _ ->
             sub.openManageSubscription(productId, customerInfo)
         }
-        .setPositiveButton(SubscriptionMessages.deleteAnywayLabel(context)) { _, _ ->
-            deleteAccount()
-        }
+        .setPositiveButton(R.string.delete_anyway) { _, _ -> deleteAccount() }
         .show()
-} else {
-    showPlainDeleteConfirmation()
 }
 ```
 
+Button labels are yours. One caution worth keeping: don't label the dismiss
+button "Cancel" — the body already uses "cancel" to mean cancelling the
+subscription, so the same word on a button that does the opposite is a misread
+waiting to happen.
+
 ### Paywall disclosure
 
-Both stores want the auto-renewal terms before the user confirms, with working
-Terms / Privacy links:
+Both stores want the auto-renewal terms before the user confirms. You get the
+sentence plus the two substrings that have to be links; spanning and styling
+them is yours:
 
 ```kotlin
-// Compose
-Text(
-    text = rememberDisclosureText(
-        linkColor = MaterialTheme.colorScheme.primary,
-        onTermsClick = { openUrl(TERMS_URL) },
-        onPrivacyClick = { openUrl(PRIVACY_URL) },
-    ),
-    style = MaterialTheme.typography.bodySmall,
-)
-
-// Views — remember movementMethod, or the spans render but never fire.
-binding.disclosure.text = SubscriptionDisclosure.spanned(
-    context, linkColor, ::openTerms, ::openPrivacy,
-)
-binding.disclosure.movementMethod = LinkMovementMethod.getInstance()
+val text = SubscriptionMessages.disclosure(context)
+val terms = SubscriptionMessages.termsLabel(context)     // where TERMS_URL goes
+val privacy = SubscriptionMessages.privacyLabel(context) // where PRIVACY_URL goes
 ```
 
-The links are built from separate label resources rather than by searching the
-sentence for English, so they keep working in translation.
+Read the link targets from `termsLabel` / `privacyLabel` rather than searching
+the sentence for the literal words "Terms of Use" — that keeps the links
+landing on the right span once the string is translated.
 
 ---
 
@@ -578,8 +583,9 @@ Then register it instead of `RevenueCatProvider`. No other code changes.
   a 7-day pass as an `INAPP` product, your server (or your app) does the
   `purchasedAtSeconds + 7 * 24 * 3600` math — the library just hands you the
   receipt.
-- It does **not** ship a paywall UI. Build your own from `customerInfo` +
-  `purchase()` — exactly the shape your app needs.
+- It does **not** ship a paywall UI, dialogs, buttons or any View/Composable.
+  `SubscriptionMessages` resolves a `title` + `message`; rendering, button
+  labels and styling are yours.
 - It does **not** own the app-account ↔ store-account linkage. That record
   lives on your backend. The library reports what the store says and gives you
   the typed outcome to act on; linking, soft-deleting, and resolving
