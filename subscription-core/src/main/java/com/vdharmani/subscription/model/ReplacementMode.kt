@@ -90,6 +90,12 @@ enum class ReplacementMode {
          *   plans of one subscription product, which is what Play's stricter
          *   rules apply to. Pass `false` only for two separate products, where
          *   a downgrade can be deferred to the end of the paid period.
+         *
+         * **Prepaid targets are the exception this cannot infer.** Play accepts
+         * only [CHARGE_FULL_PRICE] when the plan being moved *to* is prepaid,
+         * so a downgrade to a prepaid plan must pass that explicitly rather
+         * than take the [WITHOUT_PRORATION] this returns. Nothing in a product
+         * id says whether a base plan is prepaid, so the caller has to know.
          */
         fun forPlanSwitch(isUpgrade: Boolean, sameSubscription: Boolean = true): ReplacementMode = when {
             isUpgrade -> CHARGE_FULL_PRICE

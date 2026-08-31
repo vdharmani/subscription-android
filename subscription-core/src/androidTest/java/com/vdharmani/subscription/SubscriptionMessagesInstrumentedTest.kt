@@ -179,6 +179,24 @@ class SubscriptionMessagesInstrumentedTest {
     }
 
     @Test
+    fun aBlockedPlanChangeNeverFailsSilently() {
+        // The Manage screen shows no line for these two reasons, but a user
+        // who has tapped Upgrade and hit the guard must still be told
+        // something. Only a cancelled purchase sheet is allowed to say
+        // nothing.
+        for (reason in PlanChangeEligibility.Reason.entries) {
+            val message = SubscriptionMessages.forError(
+                context,
+                PlanChangeUnavailableException(reason, Store.PLAY_STORE),
+            )
+            assertTrue(
+                "no message shown for a plan change blocked by $reason",
+                message != null && message.body.isNotBlank(),
+            )
+        }
+    }
+
+    @Test
     fun accountDeletionWarnsOnlyWhileSomethingRenews() {
         val renewing = CustomerInfo("u", listOf(entitlement()), emptySet())
         assertEquals(

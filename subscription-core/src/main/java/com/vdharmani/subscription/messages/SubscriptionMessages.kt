@@ -70,8 +70,13 @@ object SubscriptionMessages {
         is SubscriptionAlreadyLinkedException ->
             msg(context, R.string.subscription_conflict, Display.DIALOG, "LNK-9C34")
 
+        // A button the user actually pressed must never fail in silence. The
+        // Manage screen can stay quiet when there is simply nothing to change
+        // — that is why planChangeBlocked returns null for those reasons — but
+        // by the time this is reached the user has acted and is waiting.
         is PlanChangeUnavailableException ->
             planChangeBlocked(context, error.reason, error.store)
+                ?: msg(context, R.string.subscription_generic_error, Display.TOAST, "PAY-18D3")
 
         is TrialNotEligibleException ->
             msg(context, R.string.subscription_trial_not_eligible, Display.DIALOG, "TRL-7B6A")
